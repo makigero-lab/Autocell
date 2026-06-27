@@ -5,7 +5,7 @@
 O Autocell é uma aplicação dividida em duas partes:
 
 - **`backend/`** — API REST construída em **Node.js + Express**, com base de dados **MongoDB** (via Mongoose). A API está desenhada para ser alojada no [Render](https://render.com).
-- **`frontend/`** — Interface de utilizador (a definir), desenhada para ser alojada na [Vercel](https://vercel.com) e a comunicar com a API através de CORS.
+- **`frontend/`** — Interface de utilizador em **Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui**, com duas áreas: Painel de Administração (`/admin`) e Área do Staff (`/staff`). Desenhada para a [Vercel](https://vercel.com), comunica com a API via CORS. *(Fase atual: dados fictícios/mock.)*
 
 > 📌 Repositório: https://github.com/makigero-lab/Autocell
 > 🌿 Branch de desenvolvimento ativa: **`dev`**
@@ -24,9 +24,14 @@ Autocell/
 │   ├── routes/webhookRoutes.js
 │   ├── .env.example
 │   └── .gitignore
-├── frontend/       # Interface (a definir)
+├── frontend/       # Interface (Next.js 14 + TS + Tailwind + shadcn/ui)
+│   ├── package.json
+│   ├── src/app/        # Rotas: /, /admin/*, /staff
+│   ├── src/components/ # ui (shadcn) + admin + staff
+│   └── src/lib/        # utils + mock-data
 ├── docs/           # Documentação técnica do projeto
-│   └── BACKEND.md
+│   ├── BACKEND.md
+│   └── FRONTEND.md
 └── README.md
 ```
 
@@ -76,9 +81,51 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 
 ---
 
+## Frontend
+
+### Pré-requisitos
+- Node.js **18 ou superior**
+
+### Instalação e execução local
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+```
+
+Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
+
+### Rotas
+
+| Rota | Área | Descrição |
+|------|------|-----------|
+| `/` | — | Landing page (escolha Admin / Staff) |
+| `/admin` | Admin (desktop-first) | Dashboard com sidebar (Dashboard, Propriedades, Equipa, Calendário de Folgas) |
+| `/admin/propriedades` | Admin | Placeholder (Propriedades) |
+| `/admin/equipa` | Admin | Placeholder (Equipa) |
+| `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
+| `/staff` | Staff (mobile-first) | Cabeçalho "Bem-vindo, [Nome]" + lista de cartões de tarefas de limpeza do dia |
+
+> Nesta fase, o frontend usa **dados fictícios (mock data)** — sem ligação à API.
+
+### Variáveis de ambiente
+
+| Variável | Descrição | Exemplo |
+|-----------|-----------|---------|
+| `NEXT_PUBLIC_API_URL` | URL base da API backend (Render). Usada na fase de integração. | `https://autocell-backend.onrender.com` |
+
+### Deploy na Vercel
+1. Importa o repositório e define **Root Directory** = `frontend`.
+2. Framework Preset: **Next.js** (detetado automaticamente).
+3. Adiciona a variável de ambiente `NEXT_PUBLIC_API_URL`.
+
+---
+
 ## Documentação
 
 - [📚 Documentação técnica do Backend](docs/BACKEND.md)
+- [🎨 Documentação técnica do Frontend](docs/FRONTEND.md)
 
 ---
 
