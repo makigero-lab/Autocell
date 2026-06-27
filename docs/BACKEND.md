@@ -109,16 +109,22 @@ Admin, Manager ou Staff de uma empresa. Credenciais de login (email + password_h
 > **Regras de segurança (v1.7.0):** não é possível criar/editar utilizadores com role `admin` via `/api/admin/equipa` (403). Não é possível editar/eliminar/desativar utilizadores que já sejam `admin` (403 "Não é possível modificar um administrador"). O `responsavel_id` tem de ser um admin/manager da mesma empresa (validado no backend).
 
 ### `Ausencia`
-Indisponibilidade de um Staff num dia. O campo `data` é **normalizado para meia-noite UTC**.
+Indisponibilidade (férias/folga) de um Staff num intervalo de datas. Todas as datas são **normalizadas para meia-noite UTC**.
 
 | Campo           | Tipo     | Notas                                                              |
 |-----------------|----------|--------------------------------------------------------------------|
 | `utilizador_id` | ObjectId | `ref: 'Utilizador'`. Obrigatório, indexado.                        |
 | `empresa_id`    | ObjectId | `ref: 'Empresa'`. Obrigatório, indexado.                           |
-| `data`          | Date     | Obrigatório, indexado. Meia-noite UTC do dia da ausência.          |
-| `motivo`        | String   | Opcional.                                                          |
+| `data_inicio`   | Date     | Obrigatório, indexado. Início do intervalo (inclusive, meia-noite UTC). |
+| `data_fim`      | Date     | Obrigatório, indexado. Fim do intervalo (inclusive, meia-noite UTC). |
+| `tipo`          | String   | `enum: ['ferias','folga']`, default `'folga'`. Obrigatório.        |
+| `notas`         | String   | Opcional. Observações livres.                                      |
+| `data`          | Date     | **Retrocompatibilidade** (v1.1.0). Preenchido automaticamente com `data_inicio` no `pre('save')`. Usado pelo webhook legacy. |
+| `motivo`        | String   | **Legacy** (v1.1.0). Mantido para não partir registos antigos.    |
 
-Índice único composto `{ utilizador_id, data }` → um Staff só tem uma ausência por dia.
+Índice único composto `{ utilizador_id, data_inicio }` → evita duplicar o mesmo início para o mesmo utilizador. A validação de **sobreposição de intervalos** é feita no controller (mensagem clara de 409).
+
+> **v1.8.0:** o modelo passou de dia único (`data`) para intervalos (`data_inicio`/`data_fim`) com `tipo` e `notas`. O webhook foi atualizado para verificar sobreposição de intervalos (mantém a query `data` legacy para retrocompatibilidade).
 
 ### `Tarefa`
 Tarefa de limpeza gerada a partir de uma reserva do Smoobu.
@@ -145,7 +151,7 @@ Quando o Smoobu notifica uma **nova reserva** (`POST /webhooks/smoobu`), a API e
 1. **Receber o payload** — extrai o ID da propriedade, a data de check-in e o ID da reserva do payload do Smoobu. **Mapeamento primário (estrutura oficial):** `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks com `??` para variantes (`content.*`, campos achatados).
 2. **Encontrar a empresa** — procura a `Propriedade` por `smoobu_id` e obtém o respetivo `empresa_id`. Se não existir → erro (a tarefa não pode ser criada sem saber a empresa).
 3. **Procurar Staff/Managers** — lista todos os `Utilizador` com `role: { $in: ['staff','manager'] }`, `ativo: true` dessa empresa. (O manager também pode executar limpezas, pelo que entra no load balancing.)
-4. **Filtro de Ausências** — exclui os Staff que tenham um registo em `Ausencia` para o dia do check-in (comparação por dia inteiro em UTC).
+4. **Filtro de Ausências** — exclui os Staff que tenham uma `Ausencia` que cubra o dia do check-in. **v1.8.0:** verifica sobreposição de intervalos (`data_inicio <= dia AND data_fim >= dia`), mantendo também a query `data` legacy para retrocompatibilidade. Férias/folgas registadas via `/api/admin/ausencias` excluem automaticamente o staff da atribuição nesse período.
 5. **Cálculo de Carga (Load Balancing)** — para cada Staff disponível, soma `tempo_limpeza_minutos` de todas as `Tarefa` já atribuídas a esse Staff para o mesmo dia (excluindo `cancelada`/`concluida`). Staff sem tarefas conta como carga `0`.
 6. **Atribuição** — a nova Tarefa é atribuída ao Staff com **menor carga acumulada** (empate → primeiro encontrado).
 7. **Sem disponíveis** — se não houver Staff disponível (ou a lógica de atribuição falhar), a Tarefa é **mesmo assim criada** com `utilizador_id: null` e `estado: 'por_atribuir'`, para o Admin atribuir manualmente.
@@ -390,6 +396,64 @@ Devolve os dados do utilizador autenticado (a partir do token).
 - **Resposta (200 OK):** `{ "utilizador": { id, nome, email, role, empresa_id } }`
 - **Erros:** `401` não autenticado / token inválido; `404` utilizador não encontrado; `500` erro interno.
 
+### 6.3. Ausências — Folgas e Férias (`/api/admin/ausencias`)
+
+> **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). Todas as rotas **protegidas** por `auth`.
+
+#### `GET /api/admin/ausencias`
+Lista as ausências da empresa, com o utilizador populado.
+
+- **Query param opcional:** `?futuras=true` — só ausências com `data_fim >= hoje` (úteis para o calendário).
+- **Resposta (200 OK):**
+```json
+{
+  "ausencias": [
+    {
+      "_id": "...",
+      "utilizador_id": "...",
+      "utilizador": { "_id": "...", "nome": "João Limpezas", "email": "...", "role": "staff" },
+      "empresa_id": "...",
+      "data_inicio": "2024-07-15T00:00:00.000Z",
+      "data_fim": "2024-07-20T00:00:00.000Z",
+      "tipo": "ferias",
+      "notas": "férias pagas"
+    }
+  ]
+}
+```
+
+#### `POST /api/admin/ausencias`
+Regista uma nova ausência (folga ou férias).
+
+- **Body:**
+```json
+{
+  "utilizador_id": "...",
+  "data_inicio": "2024-07-15",
+  "data_fim": "2024-07-20",
+  "tipo": "ferias",
+  "notas": "férias pagas"
+}
+```
+  - `utilizador_id` (obrigatório) — tem de ser staff/manager da empresa (não admin).
+  - `data_inicio` / `data_fim` (obrigatórias) — `data_fim >= data_inicio`.
+  - `tipo` (opcional, default `'folga'`) — `enum: ['ferias','folga']`.
+  - `notas` (opcional).
+- **Validações:**
+  - Utilizador existe e pertence à empresa com role staff/manager.
+  - **Sem sobreposição** com outra ausência do mesmo utilizador (409 se houver).
+- **Resposta (201 Created):** `{ "ausencia": { ... } }` (com utilizador populado).
+- **Erros:** `400` campos em falta / datas inválidas / utilizador não encontrado; `409` sobreposição; `500` erro.
+
+#### `DELETE /api/admin/ausencias/:id`
+Elimina uma ausência.
+
+- **Regras:** a ausência tem de pertencer à empresa do JWT.
+- **Resposta (200 OK):** `{ "mensagem": "Ausência eliminada com sucesso.", "ausencia_id": "..." }`.
+- **Erros:** `400` ID inválido; `404` não encontrada; `500` erro.
+
+> **Integração com o webhook:** as ausências registadas aqui são consultadas automaticamente pelo `webhookController` (passo 4 do fluxo de atribuição) para excluir staff indisponível da atribuição automática de tarefas.
+
 ---
 
 ## 7. Deploy no Render
@@ -428,3 +492,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.5.0     | 1.5.0  | **Gestão de Equipa:** `adminController` com `getEquipa` (lista utilizadores, `.select('-password_hash')`) e `criarMembroEquipa` (valida nome/email/password/role, hash bcrypt, email único); `adminRoutes` com `GET/POST /api/admin/equipa` (protegidos por `auth`). |
 | v1.6.0     | 1.6.0  | **CRUD completo de Utilizadores:** `adminController` com `atualizarMembroEquipa` (PUT — nome/email/role/password opcional com nova hash bcrypt), `alternarEstadoMembro` (PATCH — ativa/desativa, inativos não fazem login), `eliminarMembroEquipa` (DELETE — não permite auto-eliminação); `adminRoutes` com `PUT/PATCH/DELETE /api/admin/equipa/:id` (protegidos por `auth`). Validação de pertença à empresa em todas as operações. |
 | v1.7.0     | 1.7.0  | **Segurança hierárquica + `responsavel_id`:** modelo `Utilizador` com campo `responsavel_id` (ObjectId ref Utilizador, superior hierárquico); `getEquipa` faz `populate('responsavel_id')` e devolve campo `responsavel` preenchido; regras 403 em criar/editar (bloqueia role `admin`), editar/eliminar/desativar (bloqueia se alvo é `admin`); `responsavel_id` validado (admin/manager da mesma empresa, não pode ser si próprio). |
+| v1.8.0     | 1.8.0  | **Sistema de Folgas e Férias:** modelo `Ausencia` expandido para intervalos (`data_inicio`/`data_fim`/`tipo`/`notas`, com `data` retrocompatível via `pre('save')`); `controllers/ausenciaController.js` (`listarAusencias` com `?futuras=true` + populate, `registarAusencia` com validação de sobreposição, `eliminarAusencia`); `routes/ausenciaRoutes.js` (`GET/POST/DELETE /api/admin/ausencias`); `webhookController` atualizado para excluir staff com ausência no intervalo (sobreposição `data_inicio <= dia AND data_fim >= dia` + query `data` legacy). |

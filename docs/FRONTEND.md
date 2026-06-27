@@ -88,7 +88,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 | `/admin`        | Painel de Administração (Dashboard) — **protegido** (role admin) | Desktop-first |
 | `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first |
 | `/admin/equipa`       | **Consome API real** (GET/POST equipa) | Desktop-first |
-| `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first |
+| `/admin/calendario`   | **Consome API real** (GET/POST/DELETE ausências) | Desktop-first |
 | `/manager`      | Painel do Responsável de Limpezas — **protegido** (role manager) | Desktop-first |
 | `/manager/tarefas`    | Placeholder (Tarefas)                        | Desktop-first |
 | `/manager/equipa`     | Placeholder (Equipa)                         | Desktop-first |
@@ -104,7 +104,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 - **Dashboard** (`/admin`): cartões de estatística (Propriedades, Staff ativo, Tarefas hoje, Por atribuir), lista de tarefas do dia e estado da equipa com carga de trabalho.
 - **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 11).
 - **Equipa** (`/admin/equipa`): **ecrã real que consome a API** (`GET/POST /api/admin/equipa`, ver secção 11).
-- Secção **Calendário de Folgas**: página placeholder ("Em breve") — apenas layout visual.
+- **Calendário de Folgas** (`/admin/calendario`): **ecrã real que consome a API** (`GET/POST/DELETE /api/admin/ausencias`, ver secção 11).
 
 ### 3.2 Área Staff (`/staff`)
 
@@ -315,6 +315,15 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 - Após cada operação (criar/editar/eliminar), a tabela atualiza-se automaticamente (`carregar()`).
 - Componente `Dialog` (shadcn, sem Radix) em `components/ui/dialog.tsx` — backdrop, fecho com Esc/clique fora, scroll bloqueado.
 
+### `/admin/calendario` (Client Component) — Folgas e Férias (v1.11.0)
+- `useEffect` carrega em paralelo: `adminGet('/api/admin/ausencias?futuras=true')` + `adminGet('/api/admin/equipa')` (para popular o select de funcionários, filtrado a staff+manager).
+- **Formulário "Marcar Ausência"** no topo: select Funcionário, Data de Início, Data de Fim, select Tipo (Folga/Férias), Notas (opcional), botão "Agendar" → `adminPost`.
+- **Tabela** de ausências agendadas: Funcionário, Tipo (Badge com ícone Plane/Sun), Período (datas formatadas pt-PT), Notas, Ações.
+- **Eliminar**: botão 🗑️ por linha → `adminDelete` com otimismo (remove da UI imediatamente, reverte se falhar).
+- Validações no cliente: funcionário + datas obrigatórios; `data_fim >= data_inicio`.
+- Tipo `AusenciaDTO` + `TipoAusencia` em `lib/api.ts`.
+- **Integração com webhook**: as ausências registadas aqui excluem automaticamente o staff da atribuição automática de tarefas (o `webhookController` consulta `Ausencia` no passo 4).
+
 ---
 
 ## 12. Proteção de Rotas (v1.5.0)
@@ -372,3 +381,4 @@ Nova área privada (role `manager`) com sidebar própria (Dashboard, Tarefas, Eq
 | v1.8.0  | 1.8.0  | **Gestão de Equipa (`/admin/equipa`):** convertido em Client Component — `useEffect` chama `GET /api/admin/equipa` (JWT); tabela HTML (Nome, Email, Role com Badge, Estado); botão "Adicionar Funcionário" abre formulário inline (Nome, Email, Password, Role select); `POST /api/admin/equipa` cria utilizador (bcrypt no backend), limpa formulário e atualiza tabela. Tipo `UtilizadorDTO` + `Role` em `lib/api.ts`. |
 | v1.9.0  | 1.9.0  | **CRUD completo de Utilizadores (`/admin/equipa`):** coluna "Ações" com 3 botões por linha — Editar (✏️ abre modal Dialog com Nome/Email/Role/Nova Password opcional → `PUT`), Ativar/Desativar (⏻ → `PATCH /:id/estado` com otimismo), Eliminar (🗑️ abre modal de confirmação → `DELETE`). Helpers `adminPut`/`adminPatch`/`adminDelete` em `lib/api.ts`. Componente `Dialog` (shadcn, sem Radix) em `components/ui/dialog.tsx`. |
 | v1.10.0 | 1.10.0 | **Segurança hierárquica + Responsável:** `UtilizadorDTO` com `responsavel_id` + `responsavel` (populado); dropdown de Role nos formulários de criar/editar **sem opção Admin** (só Staff/Responsável); novo select **Responsável** populado com utilizadores admin+manager (exclui o próprio utilizador na edição); nova coluna **Responsável** na tabela; linhas de admin são **só de leitura** (botões Editar/Ativar/Eliminar escondidos, mostram "—"). Reflete regras 403 do backend. |
+| v1.11.0 | 1.11.0 | **Calendário de Folgas e Férias (`/admin/calendario`):** convertido em Client Component — formulário "Marcar Ausência" (Funcionário select, Data Início/Fim, Tipo Folga/Férias, Notas) → `POST /api/admin/ausencias`; tabela de ausências (Funcionário, Tipo com Badge+ícone, Período formatado pt-PT, Notas, Eliminar); botão 🗑️ com otimismo. Tipo `AusenciaDTO` + `TipoAusencia` em `lib/api.ts`. Ausências integram com o webhook (excluem staff da atribuição automática). |
