@@ -1,6 +1,11 @@
 /**
  * Autocell - API de gestão para Alojamento Local
  * Ponto de entrada da aplicação backend (Express + MongoDB).
+ *
+ * NOTA: a instância `app` é exportada (module.exports) para poder ser
+ * usada nos testes com supertest SEM iniciar o servidor HTTP nem ligar
+ * ao MongoDB. O `app.listen` e o `mongoose.connect` só correm quando
+ * este ficheiro é executado diretamente (require.main === module).
  */
 
 require('dotenv').config();
@@ -51,19 +56,31 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/ausencias', ausenciaRoutes);
 
 /* ------------------------------------------------------------------ */
-/* Ligação ao MongoDB e arranque do servidor                          */
+/* Exporta a app para testes (supertest)                              */
 /* ------------------------------------------------------------------ */
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('✅ Ligado ao MongoDB com sucesso.');
+// Permite que os testes importem a app SEM iniciar o servidor HTTP nem
+// ligar ao MongoDB (evita conflitos de portas e dependência de BD).
+module.exports = app;
 
-    // Só iniciamos o servidor HTTP depois de garantir a ligação à BD.
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor a correr na porta ${PORT}.`);
+/* ------------------------------------------------------------------ */
+/* Arranque do servidor (apenas em execução direta)                   */
+/* ------------------------------------------------------------------ */
+// Só liga ao MongoDB e abre a porta HTTP quando o ficheiro é executado
+// diretamente (node server.js / npm start). Nos testes (require('./server')),
+// este bloco NÃO corre — a app é importada apenas para supertest.
+if (require.main === module) {
+  mongoose
+    .connect(process.env.MONGODB_URI)
+    .then(() => {
+      console.log('✅ Ligado ao MongoDB com sucesso.');
+
+      // Só iniciamos o servidor HTTP depois de garantir a ligação à BD.
+      app.listen(PORT, () => {
+        console.log(`🚀 Servidor a correr na porta ${PORT}.`);
+      });
+    })
+    .catch((err) => {
+      console.error('❌ Erro ao ligar ao MongoDB:', err.message);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('❌ Erro ao ligar ao MongoDB:', err.message);
-    process.exit(1);
-  });
+}
