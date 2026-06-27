@@ -2,51 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Tema Autocell — Rebranding Premium
+ * ----------------------------------
+ * Inspirado em sites corporativos de Property Management de alto nível.
+ *
+ * Paleta:
+ *   - Backgrounds: branco neve (#fff) e cinza muito claro (zinc-50).
+ *   - Primary: Azul Marinho Premium (blue-950) — sóbrio, forte, profissional.
+ *   - Borders/sombras: muito discretos (hairline), ar "sharp" (radius 0.3rem).
+ */
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    /* Fundos */
+    --background: 0 0% 100%;          /* branco neve */
+    --foreground: 222 47% 11%;        /* blue-950 — texto principal */
+
+    --card: 0 0% 100%;                /* branco neve */
+    --card-foreground: 222 47% 11%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    /* Emerald-600 — fresco, associado a limpeza (sem azul/índigo). */
-    --primary: 161 94% 30%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Primary — Azul Marinho Premium (blue-950) */
+    --primary: 222 47% 11%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+
+    /* Secondary / muted / accent — cinzas neutros (zinc) */
+    --secondary: 240 5% 96%;          /* zinc-100 */
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;              /* zinc-100 — secções secundárias */
+    --muted-foreground: 240 4% 46%;   /* zinc-500 */
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+
+    /* Destructive (vermelho) */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 161 94% 30%;
-    --radius: 0.5rem;
+
+    /* Borders muito discretos (hairline) */
+    --border: 240 6% 90%;             /* zinc-200 */
+    --input: 240 6% 90%;
+    --ring: 222 47% 11%;              /* igual ao primary */
+
+    /* Radius reduzido para visual "sharp" / sério */
+    --radius: 0.3rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 222 47% 11%;        /* blue-950 */
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 222 40% 14%;              /* um toque acima do background */
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 222 40% 14%;
     --popover-foreground: 0 0% 98%;
-    --primary: 161 94% 36%;
-    --primary-foreground: 240 10% 3.9%;
-    --secondary: 240 3.7% 15.9%;
+    --primary: 217 91% 60%;           /* blue-500 — primary mais visível no dark */
+    --primary-foreground: 222 47% 11%;
+    --secondary: 240 4% 16%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 161 94% 36%;
+    --border: 240 4% 18%;
+    --input: 240 4% 18%;
+    --ring: 217 91% 60%;
   }
 }
 
@@ -57,5 +80,7 @@
   body {
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
+    /* Suaviza transições de cor em todo o lado */
+    font-feature-settings: "ss01", "cv01";
   }
 }

@@ -35,20 +35,22 @@ frontend/
 ├── .gitignore
 └── src/
     ├── app/
-    │   ├── globals.css       # Variáveis CSS do tema (light/dark) — primary emerald
+    │   ├── globals.css       # Variáveis CSS do tema premium (azul marinho) — light/dark
     │   ├── layout.tsx        # Layout root (fonte Inter, lang pt-PT)
-    │   ├── page.tsx          # Landing page com links para /admin e /staff
+    │   ├── page.tsx          # Landing page (premium) com links para /admin, /staff, /login
+    │   ├── login/
+    │   │   └── page.tsx      # Ecrã de Login (POST /api/auth/login, redirect por role)
     │   ├── admin/
     │   │   ├── layout.tsx    # Layout do painel admin (sidebar + main)
     │   │   ├── page.tsx      # Dashboard (estatísticas, tarefas, equipa)
-    │   │   ├── propriedades/page.tsx   # Placeholder
+    │   │   ├── propriedades/page.tsx   # Consome API real (GET/POST)
     │   │   ├── equipa/page.tsx         # Placeholder
     │   │   └── calendario/page.tsx     # Placeholder
     │   └── staff/
     │       ├── page.tsx      # Área do Staff (mobile-first)
     │       └── tarefas/[id]/page.tsx  # Detalhe da Tarefa (checklist + concluir)
     ├── components/
-    │   ├── ui/               # shadcn: button, card, badge, avatar, separator, checkbox, textarea
+    │   ├── ui/               # shadcn: button, card, badge, avatar, separator, checkbox, textarea, input
     │   ├── admin/
     │   │   ├── admin-sidebar.tsx    # Sidebar responsiva (desktop fixa / mobile overlay)
     │   │   └── placeholder-page.tsx # Componente de página "Em breve"
@@ -57,20 +59,23 @@ frontend/
     │       └── detalhe-tarefa-client.tsx # Ecrã de detalhe (estado interativo)
     └── lib/
         ├── utils.ts          # cn() — clsx + tailwind-merge
-        └── mock-data.ts      # Dados fictícios (espelham modelos do backend)
+        ├── api.ts             # Helpers de fetch (adminGet/adminPost) com Authorization Bearer
+        ├── auth.ts            # Gestão do token JWT (ler/guardar/remover + ler user do payload)
+        └── mock-data.ts      # Dados fictícios (ainda usados em /staff e dashboard)
 ```
 
 ---
 
 ## 3. Sistema de rotas
 
-A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
+A aplicação tem **duas áreas distintas** (cada uma com layout próprio) mais uma página de login:
 
 | Rota            | Descrição                                          | Abordagem         |
 |-----------------|----------------------------------------------------|-------------------|
-| `/`             | Landing page — escolha entre Admin e Staff         | —                 |
+| `/`             | Landing page — escolha entre Admin, Staff e Login  | —                 |
+| `/login`        | **Login** (POST /api/auth/login, redirect por role) | Centrado, premium |
 | `/admin`        | Painel de Administração (Dashboard)                | Desktop-first     |
-| `/admin/propriedades` | Placeholder (Propriedades)                   | Desktop-first     |
+| `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first     |
 | `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first     |
 | `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first     |
 | `/staff`        | Área do Staff — tarefas de limpeza do dia          | Mobile-first      |
@@ -83,7 +88,8 @@ A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (emerald).
 - **Dashboard** (`/admin`): cartões de estatística (Propriedades, Staff ativo, Tarefas hoje, Por atribuir), lista de tarefas do dia e estado da equipa com carga de trabalho.
-- Secções **Propriedades**, **Equipa** e **Calendário de Folgas**: páginas placeholder ("Em breve") — apenas layout visual.
+- **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 6).
+- Secções **Equipa** e **Calendário de Folgas**: páginas placeholder ("Em breve") — apenas layout visual.
 
 ### 3.2 Área Staff (`/staff`)
 
@@ -130,9 +136,18 @@ Ecrã mobile-first apresentado quando o Staff clica num cartão de tarefa atribu
 
 ## 4. Tema visual
 
-- **Cor primária:** emerald-600 (`hsl(161 94% 30%)`) — associada a limpeza/frescura. **Sem azul/índigo**.
-- **Estilo shadcn:** *New York*, base color *zinc*, com CSS variables (suporte light/dark preparado).
-- **Tipografia:** Inter (via `next/font/google`).
+### Rebranding Premium (v1.3.0)
+Inspirado em sites corporativos de Property Management de alto nível (ex.: all2gether). Estética sóbria, "sharp", luxuosa.
+
+- **Cor primária:** Azul Marinho Premium (`hsl(222 47% 11%)` ≈ Tailwind `blue-950`) — sóbrio, forte, profissional. (Anterior: emerald-600 — abandonado.)
+- **Fundos:**
+  - Light: branco neve (`#fff`) para fundos principais; `zinc-50` (`hsl(240 5% 96%)`) para secções secundárias (muted/secondary/accent).
+  - Dark: `blue-950` como fundo; `primary` ajustado para `blue-500` (mais visível).
+- **Border-radius global:** `0.3rem` (reduzido de `0.5rem`) — visual mais sério e "sharp" em botões e cartões.
+- **Borders/sombras:** muito discretos (hairline). `Card` usa `border-border/60` + `shadow-sm`; `Button` default usa `shadow-sm` com `hover:shadow-md` (elevação subtil no hover).
+- **Estilo shadcn:** *New York*, base color *zinc*, com CSS variables (suporte light/dark).
+- **Tipografia:** Inter (via `next/font/google`); pesos `font-light` (corpo) e `font-semibold` (títulos) para hierarquia premium.
+- **Landing page (`/`):** fundo limpo (sem gradiente), padrão de pontos subtil em radial-gradient, marca minimalista, cartões com `hover:-translate-y-0.5` (elevação) e ícones que mudam de cor no hover.
 - **Responsividade:** mobile-first em toda a aplicação; breakpoints Tailwind (`sm`, `lg`, `xl`).
 - **Acessibilidade:** alvos táteis ≥ 44px, `aria-label` nos botões de menu, semântica HTML (`header`, `main`, `footer`, `nav`).
 
@@ -231,14 +246,51 @@ Isto força o framework para `nextjs`, pelo que o output directory passa a `.nex
 - **Branch de desenvolvimento:** `dev`.
 - **Documentação:** sempre que o frontend é alterado, este ficheiro e o `README.md` são atualizados.
 - **Linguagem:** interface e comentários em **pt-pt**.
-- **Sem dependência da API nesta fase:** todos os dados vêm de `mock-data.ts`.
+- **Integração com a API:** `/admin/propriedades` consome a API real com **JWT** (v1.3.0); `/login` faz autenticação; as restantes secções (`/staff`, dashboard) ainda usam `mock-data.ts`.
 
 ---
 
-## 11. Histórico de alterações (frontend)
+## 11. Autenticação e Integração com a API backend
+
+### `src/lib/auth.ts` — Gestão do token JWT
+- `guardarToken(token)` / `lerToken()` / `removerToken()` — token guardado em `localStorage` (chave `autocell_token`).
+- `lerUtilizadorDoToken()` — descodifica o payload JWT (base64url) **sem verificar assinatura** (isso é responsabilidade do backend); devolve `{ id, role, empresa_id }` ou `null` se inválido/expirado.
+- `estaAutenticado()` — true se houver token válido.
+- `rotaPorRole(role)` — devolve `/admin` para admin, `/staff` para staff (usado no redirect pós-login).
+
+### `src/lib/api.ts` — Helpers de fetch
+- `API_URL` — lê `process.env.NEXT_PUBLIC_API_URL`.
+- `adminHeaders()` — inclui `Authorization: Bearer <token>` **se houver token** no localStorage; senão, envia o header legacy `x-empresa-id` (fallback de transição).
+- `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros. Em `401`, removem o token (força novo login).
+- `LoginResponse` — tipo da resposta de `POST /api/auth/login`.
+
+### `/login` (Client Component)
+Ecrã minimalista premium centrado:
+- Formulário com **Email** + **Password** + botão **Entrar** (design premium: azul marinho, padrão de pontos de fundo, marca "A").
+- Ao submeter: `POST /api/auth/login` (sem auth header — endpoint público).
+- Em caso de sucesso: `guardarToken(token)` + `router.push(rotaPorRole(role))` → **admin → `/admin`**, **staff → `/staff`**.
+- Estados: loading (spinner), erro (cartão vermelho com a mensagem do backend).
+
+### `/admin/propriedades` (Client Component)
+Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
+
+- `useEffect` chama `adminGet('/api/admin/propriedades')` ao montar.
+- Apresenta as propriedades numa **tabela HTML** (Tailwind) com colunas **Nome**, **Smoobu ID**, **Tempo de Limpeza**, **Estado**.
+- Estados visuais: loading (spinner), erro (cartão vermelho com “Tentar novamente”), vazio (call-to-action).
+- Botão **“Nova Propriedade”** no topo → abre formulário **inline** (Card) com campos **Nome**, **Smoobu ID**, **Tempo de Limpeza**.
+- Ao submeter: `adminPost('/api/admin/propriedades', { ... })`, limpa o formulário e volta a chamar `carregar()` para atualizar a tabela automaticamente.
+- Validações no cliente: Nome e Smoobu ID obrigatórios; Tempo de Limpeza numérico `>= 0`.
+
+---
+
+## 12. Histórico de alterações (frontend)
 
 | Data    | Versão | Alteração                                                                       |
 |---------|--------|---------------------------------------------------------------------------------|
 | Inicial | 1.0.0  | Scaffold Next.js 14 + TS + Tailwind + shadcn; rotas `/admin` (sidebar + dashboard + placeholders) e `/staff` (mobile-first com cartões de tarefas); mock data. Build validado. |
 | v1.1.0  | 1.1.0  | Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`): checklist interativa gerada de array, textarea de observações, botão "Concluir Tarefa" desativado até todas as checkboxes marcadas (React State). Componentes UI Checkbox e Textarea. TaskCard agora abre o detalhe via Link. |
 | v1.1.1  | 1.1.1  | Fix deploy Vercel: adicionado `vercel.json` (`"framework": "nextjs"`) para forçar a deteção do framework e evitar o erro `No Output Directory named "public"`. Documentação de deploy atualizada com definições obrigatórias (Root Directory = `frontend`, Framework Preset = Next.js). |
+| v1.2.0  | 1.2.0  | Integração com a API real na secção Propriedades: `lib/api.ts` (helpers `adminGet`/`adminPost` + `EMPRESA_ID` placeholder via header `x-empresa-id`); `/admin/propriedades` convertido em Client Component com `useEffect` (GET), tabela HTML (Nome, Smoobu ID, Tempo, Estado) e formulário inline de criação (POST + refresh automático). Componente UI `Input`. Mock-data abandonado nesta secção. |
+| v1.2.1  | 1.2.1  | `EMPRESA_ID` preenchido com o ID real do “Cliente Zero” (`6a400c9009e37b27fe0bc362`) devolvido por `GET /api/admin/setup`. Placeholder `COLA_AQUI_O_ID` removido. |
+| v1.3.0  | 1.3.0  | **Rebranding Premium:** primary mudada de emerald-600 → Azul Marinho Premium (`blue-950`); `--radius` reduzido de `0.5rem` → `0.3rem` (visual "sharp"); `Card` e `Button` com `shadow-sm` + borders hairline (`border-border/60`); landing page reescrita (gradiente verde removido, fundo limpo com padrão de pontos, tipografia `font-light`/`font-semibold`, cartões com elevação no hover `hover:-translate-y-0.5`). |
+| v1.4.0  | 1.4.0  | **Autenticação JWT:** `lib/auth.ts` (guardar/ler/remover token + descodificar payload + `rotaPorRole`); `lib/api.ts` atualizado para enviar `Authorization: Bearer <token>` (com fallback legacy `x-empresa-id` e limpeza de token em `401`); nova rota `/login` (ecrã minimalista premium, `POST /api/auth/login`, redirect admin→`/admin` / staff→`/staff`). |

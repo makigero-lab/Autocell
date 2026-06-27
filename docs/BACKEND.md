@@ -26,14 +26,21 @@ backend/
 ├── .env.example              # Modelo das variáveis de ambiente (a copiar para .env)
 ├── .gitignore                # Ignora node_modules, .env, logs, etc.
 ├── controllers/
-│   └── webhookController.js  # Webhook do Smoobu: atribuição de tarefas (lógica central)
+│   ├── webhookController.js  # Webhook do Smoobu: atribuição de tarefas (lógica central)
+│   ├── adminController.js    # Painel de Administração + setup Cliente Zero
+│   └── authController.js     # Autenticação: login (JWT) + /me
+├── middleware/
+│   └── auth.js               # Verifica JWT, injeta req.user (com fallback legacy)
 ├── models/                   # Modelos Mongoose (ODM do MongoDB)
+│   ├── Empresa.js            #   Entidade principal (multi-tenant)
 │   ├── Propriedade.js        #   Alojamento sincronizado com o Smoobu
-│   ├── Utilizador.js         #   Admin / Staff de uma empresa
+│   ├── Utilizador.js         #   Admin / Staff de uma empresa (email + password_hash)
 │   ├── Ausencia.js           #   Indisponibilidade de Staff num dia
 │   └── Tarefa.js             #   Tarefa de limpeza gerada por reserva
 └── routes/
-    └── webhookRoutes.js      # POST /webhooks/smoobu
+    ├── webhookRoutes.js      # POST /webhooks/smoobu
+    ├── adminRoutes.js        # GET/POST /api/admin/propriedades, GET /api/admin/setup
+    └── authRoutes.js         # POST /api/auth/login, GET /api/auth/me
 ```
 
 ---
@@ -47,7 +54,7 @@ O fluxo de arranque segue uma sequência segura:
 3. **Middlewares:**
    - `cors()` — habilita respostas a pedidos vindos de outras origens (essencial para o frontend na Vercel comunicar com a API no Render).
    - `express.json()` — faz parse do corpo dos pedidos em JSON, disponibilizando-os em `req.body`.
-4. **Rotas** — `GET /` (healthcheck) e montagem de `/webhooks` (ver secção 6).
+4. **Rotas** — `GET /` (healthcheck), montagem de `/webhooks` e `/api/admin` (ver secção 6).
 5. **Ligação ao MongoDB** — `mongoose.connect(process.env.MONGODB_URI)`.
    - Em **caso de sucesso**: regista mensagem e **só depois** arranca o servidor HTTP com `app.listen(PORT)`. Isto garante que a API só recebe tráfego quando a base de dados está acessível.
    - Em **caso de erro**: regista o erro e termina o processo (`process.exit(1)`), evitando arrancar um servidor sem acesso à BD.
@@ -59,7 +66,16 @@ O fluxo de arranque segue uma sequência segura:
 
 ## 3.1. Modelos de dados (Mongoose)
 
-O sistema gira em torno de 4 coleções. Todas usam `timestamps: true` (createdAt/updatedAt).
+O sistema gira em torno de 5 coleções. Todas usam `timestamps: true` (createdAt/updatedAt).
+
+### `Empresa`
+Entidade principal do SaaS (multi-tenant). Cada empresa agrupa Propriedades e Utilizadores.
+
+| Campo         | Tipo    | Notas                                              |
+|---------------|---------|----------------------------------------------------|
+| `nome`        | String  | Obrigatório, trim, indexado.                       |
+| `nif`         | String  | Opcional, trim.                                    |
+| `plano_ativo` | Boolean | Default `true`.                                    |
 
 ### `Propriedade`
 Representa um alojamento sincronizado com o Smoobu.
@@ -73,15 +89,16 @@ Representa um alojamento sincronizado com o Smoobu.
 | `ativo`                 | Boolean  | Default `true`.                                              |
 
 ### `Utilizador`
-Admin ou Staff de uma empresa.
+Admin ou Staff de uma empresa. Credenciais de login (email + password_hash).
 
-| Campo        | Tipo     | Notas                                                              |
-|--------------|----------|--------------------------------------------------------------------|
-| `nome`       | String   | Obrigatório.                                                       |
-| `email`      | String   | Obrigatório, lowercase, indexado.                                  |
-| `empresa_id` | ObjectId | `ref: 'Empresa'`. Obrigatório, indexado.                           |
-| `role`       | String   | `enum: ['admin','staff']`, default `'staff'`.                      |
-| `ativo`      | Boolean  | Default `true`. Staff inativo é ignorado pelo webhook.             |
+| Campo            | Tipo     | Notas                                                              |
+|------------------|----------|--------------------------------------------------------------------|
+| `nome`           | String   | Obrigatório.                                                       |
+| `email`          | String   | Obrigatório, lowercase, trim, **único** (indexado). Credencial de login. |
+| `password_hash`  | String   | Hash bcrypt da password (nunca a password em claro). Opcional (utilizador migrado sem password → login recusa). |
+| `empresa_id`     | ObjectId | `ref: 'Empresa'`. Obrigatório, indexado.                           |
+| `role`           | String   | `enum: ['admin','staff']`, default `'staff'`.                      |
+| `ativo`          | Boolean  | Default `true`. Staff inativo é ignorado pelo webhook e pelo login. |
 
 ### `Ausencia`
 Indisponibilidade de um Staff num dia. O campo `data` é **normalizado para meia-noite UTC**.
@@ -109,7 +126,7 @@ Tarefa de limpeza gerada a partir de uma reserva do Smoobu.
 | `tipo`                  | String   | `enum: ['limpeza','check_in','check_out','manutencao','outro']`.   |
 | `estado`                | String   | `enum: ['por_atribuir','atribuida','em_curso','concluida','cancelada']`. |
 
-> Nota: `empresa_id` é uma referência a `Empresa`. O modelo `Empresa` será criado numa fase posterior; por agora é tratado como `ObjectId`.
+> Nota: `empresa_id` é uma referência a `Empresa` (modelo criado na v1.2.0).
 
 ---
 
@@ -146,10 +163,12 @@ Quando o Smoobu notifica uma **nova reserva** (`POST /webhooks/smoobu`), a API e
 
 Definidas no ficheiro `.env` (a criar a partir de `.env.example`). **Nunca** fazer commit do `.env`.
 
-| Variável      | Obrigatória | Descrição                                                        |
-|---------------|-------------|------------------------------------------------------------------|
-| `MONGODB_URI` | ✅ Sim       | URI de ligação ao MongoDB (local, Atlas ou add-on do Render)     |
-| `PORT`        | ❌ Não        | Porta de escuta. Por defeito `5000`. No Render é injetada.       |
+| Variável        | Obrigatória | Descrição                                                        |
+|-----------------|-------------|------------------------------------------------------------------|
+| `MONGODB_URI`   | ✅ Sim       | URI de ligação ao MongoDB (local, Atlas ou add-on do Render)     |
+| `PORT`          | ❌ Não        | Porta de escuta. Por defeito `5000`. No Render é injetada.       |
+| `JWT_SECRET`    | ✅ Sim (prod)| Segredo para assinar/verificar JWT. Em dev tem fallback. **Gerar valor aleatório longo em produção.** |
+| `JWT_EXPIRACAO` | ❌ Não        | Tempo de expiração do JWT (formato jsonwebtoken: `7d`, `12h`). Default `7d`. |
 
 ---
 
@@ -192,6 +211,98 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 ```
 - **Resultado (assíncrono):** é criado um documento `Tarefa` com `utilizador_id` preenchido (Staff com menor carga) ou `null` (sem disponíveis / erro). O resultado é registado nos logs do servidor.
 
+### 6.1. Painel de Administração (`/api/admin`)
+
+> **Autenticação (v1.3.0):** o middleware `auth` é aplicado **dentro de `adminRoutes.js`** apenas às rotas que precisam de proteção (`/propriedades`). A rota `/setup` é **PÚBLICA** de propósito (é o endpoint de bootstrap que cria o primeiro utilizador — ainda não há token para a chamar).
+> - **Prioridade JWT:** se houver header `Authorization: Bearer <token>`, o middleware valida o JWT e injeta `req.user = { id, role, empresa_id }`. O `empresa_id` é lido do token (não mais do header manual).
+> - **Fallback legacy (transição):** se NÃO houver token mas houver header `x-empresa-id`, o acesso é permitido em modo legacy (sem `req.user.id`). Isto evita partir o frontend enquanto migra para login. **Remover quando o frontend estiver 100% com JWT.**
+> - Sem token nem header → `401`.
+
+#### `GET /api/admin/propriedades`
+Devolve as propriedades da empresa (ordenadas por `nome`).
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Resposta (200 OK):**
+```json
+{
+  "propriedades": [
+    { "_id": "...", "smoobu_id": "99999", "nome": "Casa Teste", "empresa_id": "...", "tempo_limpeza_minutos": 60, "ativo": true, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+- **Erros:** `400` empresa_id em falta/inválido; `401` não autenticado; `500` erro interno.
+
+#### `POST /api/admin/propriedades`
+Cria uma propriedade para a empresa.
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy).
+- **Body:**
+```json
+{
+  "smoobu_id": "99999",
+  "nome": "Casa Teste",
+  "tempo_limpeza_minutos": 60
+}
+```
+  - `smoobu_id` (obrigatório, único global) — ID do apartment no Smoobu.
+  - `nome` (obrigatório).
+  - `tempo_limpeza_minutos` (opcional, default `60`, tem de ser `>= 0`).
+- **Resposta (201 Created):** `{ "propriedade": { ... } }`
+- **Erros:** `400` campos em falta / `tempo_limpeza_minutos` inválido; `401` não autenticado; `409` se `smoobu_id` já existir; `500` erro interno.
+
+#### `GET /api/admin/setup`  *(PÚBLICO — sem auth)*
+**Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
+
+- 1 **Empresa** «O Meu Alojamento Local» (procura por `nome`).
+- 1 **Utilizador Staff** «João Limpezas» (procura por `email` único). **Cria `password_hash` com bcrypt** para permitir login imediato.
+- 1 **Propriedade** «Casa Teste» (`smoobu_id: '99999'`).
+
+- **Resposta (200 OK):**
+```json
+{
+  "mensagem": "Cliente Zero criado com sucesso.",
+  "empresa_id": "<ObjectId>",
+  "empresa":  { "id": "...", "nome": "O Meu Alojamento Local", "plano_ativo": true, "criada": true },
+  "staff":    { "id": "...", "nome": "João Limpezas", "email": "joao.limpezas@autocell.pt", "role": "staff", "criado": true, "password_definida": true, "credenciais_teste": { "email": "joao.limpezas@autocell.pt", "password": "autocell123" } },
+  "propriedade": { "id": "...", "nome": "Casa Teste", "smoobu_id": "99999", "criada": true }
+}
+```
+- Se já existir tudo, devolve `mensagem: "Cliente Zero já existia (nada foi alterado)."` com `criada/criado: false`.
+- **Retrocompatibilidade:** se o staff já existir mas não tiver `password_hash` (criado antes do auth), o setup define-lhe a password.
+- **Credenciais de teste:** `joao.limpezas@autocell.pt` / `autocell123` (remover em produção).
+
+### 6.2. Autenticação (`/api/auth`)
+
+#### `POST /api/auth/login` (público)
+Login com email + password. Valida a hash bcrypt e devolve um JWT.
+
+- **Body:**
+```json
+{ "email": "joao.limpezas@autocell.pt", "password": "autocell123" }
+```
+- **Resposta (200 OK):**
+```json
+{
+  "token": "<jwt>",
+  "utilizador": {
+    "id": "...",
+    "nome": "João Limpezas",
+    "email": "joao.limpezas@autocell.pt",
+    "role": "staff",
+    "empresa_id": "..."
+  }
+}
+```
+- **JWT payload:** `{ id, role, empresa_id }` assinado com `JWT_SECRET`, expira em `JWT_EXPIRACAO` (default `7d`).
+- **Erros:** `400` email/password em falta; `401` credenciais inválidas / utilizador inativo / sem password definida; `500` erro interno.
+
+#### `GET /api/auth/me` (requer JWT)
+Devolve os dados do utilizador autenticado (a partir do token).
+
+- **Header:** `Authorization: Bearer <token>`
+- **Resposta (200 OK):** `{ "utilizador": { id, nome, email, role, empresa_id } }`
+- **Erros:** `401` não autenticado / token inválido; `404` utilizador não encontrado; `500` erro interno.
+
 ---
 
 ## 7. Deploy no Render
@@ -201,7 +312,7 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 | Root Directory   | `backend`                    |
 | Build Command    | `npm install`                |
 | Start Command    | `npm start`                  |
-| Environment Vars | `MONGODB_URI` (e `PORT` opcional) |
+| Environment Vars | `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRACAO` (e `PORT` opcional) |
 
 > O Render injeta automaticamente a variável `PORT`. A aplicação lê essa variável, pelo que não é necessário defini-la manualmente.
 
@@ -222,3 +333,6 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 |------------|--------|---------------------------------------------------------------------|
 | Inicial    | 1.0.0  | Criação da estrutura base: `package.json`, `server.js`, `.env.example`, `.gitignore`. Ligação ao MongoDB e rota de teste `GET /`. |
 | v1.1.0     | 1.1.0  | Lógica central: modelos `Propriedade`, `Utilizador`, `Ausencia`, `Tarefa`; `controllers/webhookController.js` (fluxo estrito de atribuição com filtro de ausências + load balancing); `routes/webhookRoutes.js` (`POST /webhooks/smoobu`); resposta 200 imediata + processamento assíncrono; tratamento de erros robusto. |
+| v1.2.0     | 1.2.0  | Painel de Administração: modelo `Empresa` (nome, nif, plano_ativo); `controllers/adminController.js` (`getPropriedades`, `criarPropriedade`, `setupClienteZero`); `routes/adminRoutes.js` (`GET/POST /api/admin/propriedades`, `GET /api/admin/setup`); montagem em `server.js`. `empresa_id` via header `x-empresa-id` (sem JWT ainda). |
+| v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@autocell.pt` / `autocell123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
+| v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
