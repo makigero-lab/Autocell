@@ -66,6 +66,44 @@ export async function adminPost<T>(path: string, body: unknown): Promise<T> {
   return handleResponse<T>(res);
 }
 
+/**
+ * Faz um PUT a um endpoint admin com JSON no corpo (atualização completa/parcial).
+ */
+export async function adminPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "PUT",
+    headers: adminHeaders(),
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  return handleResponse<T>(res);
+}
+
+/**
+ * Faz um PATCH a um endpoint admin com JSON no corpo (atualização parcial).
+ */
+export async function adminPatch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+  return handleResponse<T>(res);
+}
+
+/**
+ * Faz um DELETE a um endpoint admin.
+ */
+export async function adminDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "DELETE",
+    headers: adminHeaders(),
+    cache: "no-store",
+  });
+  return handleResponse<T>(res);
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     // 401 — token inválido/expirado: limpa para forçar novo login.

@@ -282,9 +282,10 @@ Isto força o framework para `nextjs`, pelo que o output directory passa a `.nex
 
 ### `src/lib/api.ts` — Helpers de fetch
 - `API_URL` — lê `process.env.NEXT_PUBLIC_API_URL`.
-- `adminHeaders()` — inclui `Authorization: Bearer <token>` **se houver token** no localStorage; senão, envia o header legacy `x-empresa-id` (fallback de transição).
-- `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros. Em `401`, removem o token (força novo login).
+- `adminHeaders()` — inclui `Authorization: Bearer <token>` **se houver token** no cookie; senão, envia o header legacy `x-empresa-id` (fallback de transição).
+- `adminGet(path)` / `adminPost(path, body)` / `adminPut(path, body)` / `adminPatch(path, body?)` / `adminDelete(path)` — wrappers de `fetch` para GET/POST/PUT/PATCH/DELETE com tratamento de erros. Em `401`, removem o token (força novo login).
 - `LoginResponse` — tipo da resposta de `POST /api/auth/login`.
+- `UtilizadorDTO` / `Role` — tipos que espelham o modelo `Utilizador` do backend.
 
 ### `/login` (Client Component)
 Ecrã minimalista premium centrado:
@@ -302,6 +303,16 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 - Botão **“Nova Propriedade”** no topo → abre formulário **inline** (Card) com campos **Nome**, **Smoobu ID**, **Tempo de Limpeza**.
 - Ao submeter: `adminPost('/api/admin/propriedades', { ... })`, limpa o formulário e volta a chamar `carregar()` para atualizar a tabela automaticamente.
 - Validações no cliente: Nome e Smoobu ID obrigatórios; Tempo de Limpeza numérico `>= 0`.
+
+### `/admin/equipa` (Client Component) — CRUD completo (v1.9.0)
+- `useEffect` chama `adminGet('/api/admin/equipa')` ao montar.
+- **Tabela** com colunas: **Nome**, **Email**, **Role** (Badge), **Estado** (Badge Ativo/Inativo), **Ações**.
+- **Adicionar**: botão "Adicionar Funcionário" → formulário inline (Nome, Email, Password, Role select) → `adminPost`.
+- **Editar**: botão ✏️ por linha → abre **modal Dialog** com Nome, Email, Role + **Nova Password (opcional)** → `adminPut`. Password vazia = mantém atual (útil para redefinir se esquecer).
+- **Ativar/Desativar**: botão ⏻ por linha → `adminPatch('/equipa/:id/estado')` com otimismo (atualiza UI imediatamente, reverte se falhar).
+- **Eliminar**: botão 🗑️ por linha → abre **modal de confirmação** (Dialog) → `adminDelete`. Aviso: "ação permanente".
+- Após cada operação (criar/editar/eliminar), a tabela atualiza-se automaticamente (`carregar()`).
+- Componente `Dialog` (shadcn, sem Radix) em `components/ui/dialog.tsx` — backdrop, fecho com Esc/clique fora, scroll bloqueado.
 
 ---
 
@@ -358,3 +369,4 @@ Nova área privada (role `manager`) com sidebar própria (Dashboard, Tarefas, Eq
 | v1.6.0  | 1.6.0  | **Novo role `manager` (Responsável de Limpezas):** tipo `Role = admin \| manager \| staff` em `lib/auth.ts`, `lib/api.ts`, `middleware.ts`, `route-guard.tsx`; `rotaPorRole` atualizada (manager → `/manager`); nova área `/manager` (layout + `manager-sidebar.tsx` + dashboard com tarefas + equipa + placeholders `/manager/tarefas` e `/manager/equipa`); `middleware.ts` protege `/manager/**`; `mock-data` atualizado com role manager + membro manager na equipa; dashboard admin inclui managers na equipa operacional. |
 | v1.7.0  | 1.7.0  | **Rebranding Premium Dourado:** primary mudada de azul marinho (`blue-950`) → Dourado/Areia (`hsl(43 74% 49%)`); `--radius` reduzido de `0.3rem` → `0.25rem` (ainda mais "afiado"); `--muted`/`--secondary`/`--accent` = `210 40% 96%` (cinza super suave); `--border`/`--input` = `214.3 31.8% 91.4%`; dark mode luxuoso (fundo escuro + dourado brilhante `43 74% 55%`); `Button` default: removido `hover:shadow-md` (visual flat); landing page: botão maior e elegante (`h-12 px-10 tracking-wide`). Inspirado em All2Gether. |
 | v1.8.0  | 1.8.0  | **Gestão de Equipa (`/admin/equipa`):** convertido em Client Component — `useEffect` chama `GET /api/admin/equipa` (JWT); tabela HTML (Nome, Email, Role com Badge, Estado); botão "Adicionar Funcionário" abre formulário inline (Nome, Email, Password, Role select); `POST /api/admin/equipa` cria utilizador (bcrypt no backend), limpa formulário e atualiza tabela. Tipo `UtilizadorDTO` + `Role` em `lib/api.ts`. |
+| v1.9.0  | 1.9.0  | **CRUD completo de Utilizadores (`/admin/equipa`):** coluna "Ações" com 3 botões por linha — Editar (✏️ abre modal Dialog com Nome/Email/Role/Nova Password opcional → `PUT`), Ativar/Desativar (⏻ → `PATCH /:id/estado` com otimismo), Eliminar (🗑️ abre modal de confirmação → `DELETE`). Helpers `adminPut`/`adminPatch`/`adminDelete` em `lib/api.ts`. Componente `Dialog` (shadcn, sem Radix) em `components/ui/dialog.tsx`. |
