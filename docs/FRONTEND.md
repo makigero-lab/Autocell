@@ -132,9 +132,18 @@ Ecrã mobile-first apresentado quando o Staff clica num cartão de tarefa atribu
 
 ## 4. Tema visual
 
-- **Cor primária:** emerald-600 (`hsl(161 94% 30%)`) — associada a limpeza/frescura. **Sem azul/índigo**.
-- **Estilo shadcn:** *New York*, base color *zinc*, com CSS variables (suporte light/dark preparado).
-- **Tipografia:** Inter (via `next/font/google`).
+### Rebranding Premium (v1.3.0)
+Inspirado em sites corporativos de Property Management de alto nível (ex.: all2gether). Estética sóbria, "sharp", luxuosa.
+
+- **Cor primária:** Azul Marinho Premium (`hsl(222 47% 11%)` ≈ Tailwind `blue-950`) — sóbrio, forte, profissional. (Anterior: emerald-600 — abandonado.)
+- **Fundos:**
+  - Light: branco neve (`#fff`) para fundos principais; `zinc-50` (`hsl(240 5% 96%)`) para secções secundárias (muted/secondary/accent).
+  - Dark: `blue-950` como fundo; `primary` ajustado para `blue-500` (mais visível).
+- **Border-radius global:** `0.3rem` (reduzido de `0.5rem`) — visual mais sério e "sharp" em botões e cartões.
+- **Borders/sombras:** muito discretos (hairline). `Card` usa `border-border/60` + `shadow-sm`; `Button` default usa `shadow-sm` com `hover:shadow-md` (elevação subtil no hover).
+- **Estilo shadcn:** *New York*, base color *zinc*, com CSS variables (suporte light/dark).
+- **Tipografia:** Inter (via `next/font/google`); pesos `font-light` (corpo) e `font-semibold` (títulos) para hierarquia premium.
+- **Landing page (`/`):** fundo limpo (sem gradiente), padrão de pontos subtil em radial-gradient, marca minimalista, cartões com `hover:-translate-y-0.5` (elevação) e ícones que mudam de cor no hover.
 - **Responsividade:** mobile-first em toda a aplicação; breakpoints Tailwind (`sm`, `lg`, `xl`).
 - **Acessibilidade:** alvos táteis ≥ 44px, `aria-label` nos botões de menu, semântica HTML (`header`, `main`, `footer`, `nav`).
 
@@ -269,3 +278,4 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 | v1.1.1  | 1.1.1  | Fix deploy Vercel: adicionado `vercel.json` (`"framework": "nextjs"`) para forçar a deteção do framework e evitar o erro `No Output Directory named "public"`. Documentação de deploy atualizada com definições obrigatórias (Root Directory = `frontend`, Framework Preset = Next.js). |
 | v1.2.0  | 1.2.0  | Integração com a API real na secção Propriedades: `lib/api.ts` (helpers `adminGet`/`adminPost` + `EMPRESA_ID` placeholder via header `x-empresa-id`); `/admin/propriedades` convertido em Client Component com `useEffect` (GET), tabela HTML (Nome, Smoobu ID, Tempo, Estado) e formulário inline de criação (POST + refresh automático). Componente UI `Input`. Mock-data abandonado nesta secção. |
 | v1.2.1  | 1.2.1  | `EMPRESA_ID` preenchido com o ID real do “Cliente Zero” (`6a400c9009e37b27fe0bc362`) devolvido por `GET /api/admin/setup`. Placeholder `COLA_AQUI_O_ID` removido. |
+| v1.3.0  | 1.3.0  | **Rebranding Premium:** primary mudada de emerald-600 → Azul Marinho Premium (`blue-950`); `--radius` reduzido de `0.5rem` → `0.3rem` (visual "sharp"); `Card` e `Button` com `shadow-sm` + borders hairline (`border-border/60`); landing page reescrita (gradiente verde removido, fundo limpo com padrão de pontos, tipografia `font-light`/`font-semibold`, cartões com elevação no hover `hover:-translate-y-0.5`). |
