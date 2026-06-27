@@ -19,6 +19,9 @@ Autocell/
 ├── backend/        # API REST (Node.js + Express + MongoDB)
 │   ├── package.json
 │   ├── server.js
+│   ├── controllers/webhookController.js
+│   ├── models/ (Propriedade, Utilizador, Ausencia, Tarefa)
+│   ├── routes/webhookRoutes.js
 │   ├── .env.example
 │   └── .gitignore
 ├── frontend/       # Interface (a definir)
@@ -57,9 +60,12 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 
 ### Endpoints disponíveis
 
-| Método | Rota | Descrição                                                          |
-|--------|------|--------------------------------------------------------------------|
-| `GET`  | `/`  | Rota de teste. Devolve `{ "status": "API do Alojamento Local online e ligada à BD!" }` |
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET`  | `/`  | Healthcheck. Devolve `{ "status": "API do Alojamento Local online e ligada à BD!" }` |
+| `POST` | `/webhooks/smoobu` | Webhook do Smoobu (nova reserva). Cria a Tarefa de limpeza aplicando filtro de ausências + load balancing. Responde `200` imediato e processa de forma assíncrona. |
+
+> Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
 
 ### Deploy no Render
 1. Cria um novo serviço **Web Service** apontando para a pasta `backend/`.

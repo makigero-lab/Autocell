@@ -9,6 +9,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
+const webhookRoutes = require('./routes/webhookRoutes');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -29,6 +31,9 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({ status: 'API do Alojamento Local online e ligada à BD!' });
 });
+
+// Webhooks de integrações externas (Smoobu, etc.).
+app.use('/webhooks', webhookRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Ligação ao MongoDB e arranque do servidor                          */
