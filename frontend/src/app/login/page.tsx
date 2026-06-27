@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 
@@ -14,7 +14,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { API_URL, type LoginResponse } from "@/lib/api";
-import { guardarToken, rotaPorRole } from "@/lib/auth";
+import {
+  guardarToken,
+  lerUtilizadorDoToken,
+  rotaPorRole,
+} from "@/lib/auth";
 
 /**
  * Página de Login — Autocell
@@ -22,16 +26,48 @@ import { guardarToken, rotaPorRole } from "@/lib/auth";
  * Ecrã minimalista centrado, com o design premium (azul marinho + sharp).
  * Ao submeter:
  *   1. POST /api/auth/login com { email, password }.
- *   2. Em caso de sucesso, guarda o token no localStorage e redireciona:
- *        - role "admin" -> /admin
- *        - role "staff"  -> /staff
+ *   2. Em caso de sucesso, guarda o token num cookie (middleware lê) e
+ *      redireciona:
+ *        - para a rota original (?from=) se vier de uma rota protegida
+ *        - senão: admin -> /admin, staff -> /staff
+ *
+ * Se o utilizador já tiver token válido, é redirecionado automaticamente
+ * para o seu painel (o middleware.ts também trata disto no servidor).
+ *
+ * NOTA: o `useSearchParams` exige um <Suspense> boundary no Next.js 14
+ * (build-time), por isso o conteúdo está no componente `LoginConteudo`
+ * envolvido por <Suspense> no export default.
  */
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <LoginConteudo />
+    </Suspense>
+  );
+}
+
+function LoginConteudo() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const from = searchParams.get("from");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  // Se já estiver autenticado, redireciona para o painel (ou para ?from=).
+  useEffect(() => {
+    const user = lerUtilizadorDoToken();
+    if (user) {
+      router.replace(from || rotaPorRole(user.role));
+    }
+  }, [router, from]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -64,9 +100,11 @@ export default function LoginPage() {
 
       const data = (await res.json()) as LoginResponse;
 
-      // Guarda o token e redireciona conforme o role.
+      // Guarda o token num cookie (middleware lê) e redireciona.
       guardarToken(data.token);
-      router.push(rotaPorRole(data.utilizador.role));
+      // Prioriza a rota original (?from=); senão usa o painel do role.
+      const destino = from || rotaPorRole(data.utilizador.role);
+      router.push(destino);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao iniciar sessão.");
     } finally {

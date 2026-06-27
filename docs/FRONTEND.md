@@ -34,19 +34,21 @@ frontend/
 ├── .env.example              # Modelo de variáveis de ambiente
 ├── .gitignore
 └── src/
+    ├── middleware.ts          # Proteção de rotas (Edge): /admin/** e /staff/** exigem token; / e /login redirecionam autenticados
     ├── app/
     │   ├── globals.css       # Variáveis CSS do tema premium (azul marinho) — light/dark
     │   ├── layout.tsx        # Layout root (fonte Inter, lang pt-PT)
-    │   ├── page.tsx          # Landing page (premium) com links para /admin, /staff, /login
+    │   ├── page.tsx          # Landing page premium (1 botão 'Entrar na Plataforma' → /login)
     │   ├── login/
-    │   │   └── page.tsx      # Ecrã de Login (POST /api/auth/login, redirect por role)
+    │   │   └── page.tsx      # Ecrã de Login (POST /api/auth/login, redirect por role / ?from=)
     │   ├── admin/
-    │   │   ├── layout.tsx    # Layout do painel admin (sidebar + main)
+    │   │   ├── layout.tsx    # Layout admin + RouteGuard (role admin)
     │   │   ├── page.tsx      # Dashboard (estatísticas, tarefas, equipa)
     │   │   ├── propriedades/page.tsx   # Consome API real (GET/POST)
     │   │   ├── equipa/page.tsx         # Placeholder
     │   │   └── calendario/page.tsx     # Placeholder
     │   └── staff/
+    │       ├── layout.tsx    # Layout staff + RouteGuard (role staff)
     │       ├── page.tsx      # Área do Staff (mobile-first)
     │       └── tarefas/[id]/page.tsx  # Detalhe da Tarefa (checklist + concluir)
     ├── components/
@@ -54,13 +56,15 @@ frontend/
     │   ├── admin/
     │   │   ├── admin-sidebar.tsx    # Sidebar responsiva (desktop fixa / mobile overlay)
     │   │   └── placeholder-page.tsx # Componente de página "Em breve"
+    │   ├── auth/
+    │   │   └── route-guard.tsx      # Camada client-side de proteção (valida token + role)
     │   └── staff/
     │       ├── task-card.tsx             # Cartão de tarefa (link para detalhe)
     │       └── detalhe-tarefa-client.tsx # Ecrã de detalhe (estado interativo)
     └── lib/
         ├── utils.ts          # cn() — clsx + tailwind-merge
         ├── api.ts             # Helpers de fetch (adminGet/adminPost) com Authorization Bearer
-        ├── auth.ts            # Gestão do token JWT (ler/guardar/remover + ler user do payload)
+        ├── auth.ts            # Gestão do token JWT em **cookie** (middleware lê) + ler user do payload
         └── mock-data.ts      # Dados fictícios (ainda usados em /staff e dashboard)
 ```
 
@@ -68,18 +72,18 @@ frontend/
 
 ## 3. Sistema de rotas
 
-A aplicação tem **duas áreas distintas** (cada uma com layout próprio) mais uma página de login:
+A aplicação tem **duas áreas privadas** (cada uma com layout próprio), uma página de login e uma landing page pública — todas com proteção de rotas (ver secção 12):
 
 | Rota            | Descrição                                          | Abordagem         |
 |-----------------|----------------------------------------------------|-------------------|
-| `/`             | Landing page — escolha entre Admin, Staff e Login  | —                 |
-| `/login`        | **Login** (POST /api/auth/login, redirect por role) | Centrado, premium |
-| `/admin`        | Painel de Administração (Dashboard)                | Desktop-first     |
-| `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first     |
-| `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first     |
-| `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first     |
-| `/staff`        | Área do Staff — tarefas de limpeza do dia          | Mobile-first      |
-| `/staff/tarefas/[id]` | Detalhe da Tarefa (checklist + concluir)      | Mobile-first      |
+| `/`             | Landing premium — 1 botão 'Entrar na Plataforma' → `/login` | — |
+| `/login`        | **Login** (POST /api/auth/login; redirect por role / `?from=`) | Centrado, premium |
+| `/admin`        | Painel de Administração (Dashboard) — **protegido** (role admin) | Desktop-first |
+| `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first |
+| `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first |
+| `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first |
+| `/staff`        | Área do Staff — tarefas de limpeza do dia — **protegida** (role staff) | Mobile-first |
+| `/staff/tarefas/[id]` | Detalhe da Tarefa (checklist + concluir)      | Mobile-first |
 
 ### 3.1 Área Admin (`/admin`)
 
@@ -283,7 +287,41 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 
 ---
 
-## 12. Histórico de alterações (frontend)
+## 12. Proteção de Rotas (v1.5.0)
+
+A proteção de rotas usa **duas camadas complementares**:
+
+### 12.1 `src/middleware.ts` (camada servidor / Edge)
+Executado antes de renderizar qualquer página. Lê o cookie `autocell_token` (definido por `lib/auth.ts` após login):
+
+- **Rotas privadas** (`/admin/*`, `/staff/*`):
+  - Sem token (ou token inválido/expirado) → redireciona para `/login?from=<rota>` (preserva a rota pretendida).
+  - Token válido mas role errado (ex.: staff tenta aceder a `/admin`) → redireciona para o painel do role.
+  - Token válido + role certo → deixa passar.
+- **Rotas públicas para autenticados** (`/`, `/login`):
+  - Com token válido → redireciona para o painel do role (`/admin` ou `/staff`).
+  - Sem token → deixa passar (mostra landing/login).
+- `matcher`: `/`, `/login`, `/admin/:path*`, `/staff/:path*` (ignora `_next`, `api`, estáticos).
+- **Não verifica a assinatura** do JWT (seria arriscado no Edge); valida apenas formato + `exp`. A verificação real é feita pelo backend em cada pedido à API.
+
+### 12.2 `components/auth/route-guard.tsx` (camada client-side)
+Client Component aplicado nos layouts de `/admin` e `/staff` (envolve o conteúdo). Segunda camada de defesa:
+
+- Re-valida o token no client (`lerUtilizadorDoToken` — descodifica e verifica `exp`).
+- Confirma que o `role` do utilizador corresponde ao role da área.
+- Mostra um **spinner** enquanto valida (evita flash de conteúdo protegido).
+- Se falhar → `router.replace('/login')`.
+
+### 12.3 `lib/auth.ts` — token em cookie (necessário para middleware)
+O token passou a ser guardado num **cookie** (`autocell_token`, SameSite=Lax, 7 dias) em vez de localStorage, porque o `middleware.ts` (Edge) só consegue ler cookies, não localStorage. Mantém-se localStorage como backup. Funções: `guardarToken`, `lerToken`, `removerToken`, `lerUtilizadorDoToken`, `estaAutenticado`, `rotaPorRole`.
+
+### 12.4 Fluxo de redirecionamento pós-login
+- Login com sucesso → `guardarToken(token)` (define cookie) → redirect para `?from=` (se vier de rota protegida) ou `rotaPorRole(role)`.
+- Se um utilizador autenticado aceder a `/login` ou `/` → middleware redireciona para o painel.
+
+---
+
+## 13. Histórico de alterações (frontend)
 
 | Data    | Versão | Alteração                                                                       |
 |---------|--------|---------------------------------------------------------------------------------|
@@ -294,3 +332,4 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 | v1.2.1  | 1.2.1  | `EMPRESA_ID` preenchido com o ID real do “Cliente Zero” (`6a400c9009e37b27fe0bc362`) devolvido por `GET /api/admin/setup`. Placeholder `COLA_AQUI_O_ID` removido. |
 | v1.3.0  | 1.3.0  | **Rebranding Premium:** primary mudada de emerald-600 → Azul Marinho Premium (`blue-950`); `--radius` reduzido de `0.5rem` → `0.3rem` (visual "sharp"); `Card` e `Button` com `shadow-sm` + borders hairline (`border-border/60`); landing page reescrita (gradiente verde removido, fundo limpo com padrão de pontos, tipografia `font-light`/`font-semibold`, cartões com elevação no hover `hover:-translate-y-0.5`). |
 | v1.4.0  | 1.4.0  | **Autenticação JWT:** `lib/auth.ts` (guardar/ler/remover token + descodificar payload + `rotaPorRole`); `lib/api.ts` atualizado para enviar `Authorization: Bearer <token>` (com fallback legacy `x-empresa-id` e limpeza de token em `401`); nova rota `/login` (ecrã minimalista premium, `POST /api/auth/login`, redirect admin→`/admin` / staff→`/staff`). |
+| v1.5.0  | 1.5.0  | **Proteção de rotas + landing simplificada:** `middleware.ts` (Edge) protege `/admin/**` e `/staff/**` (sem token → `/login?from=`), redireciona autenticados de `/` e `/login`, e valida role por área; `lib/auth.ts` passou a guardar token em **cookie** (middleware lê) em vez de localStorage; `components/auth/route-guard.tsx` (2ª camada client-side) aplicado nos layouts admin/staff; landing page simplificada (removidos cartões Admin/Staff, 1 botão 'Entrar na Plataforma' → `/login`); `/login` lê `?from=` e redireciona autenticados via `useEffect`. |
