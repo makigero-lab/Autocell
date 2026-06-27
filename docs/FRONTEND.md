@@ -189,13 +189,40 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 
 ## 9. Deploy na Vercel
 
-| Definição      | Valor            |
-|----------------|------------------|
-| Root Directory | `frontend`       |
-| Framework      | Next.js (auto)   |
-| Build Command  | `next build` (auto) |
-| Output         | `.next` (auto)   |
-| Env Vars       | `NEXT_PUBLIC_API_URL` (URL do backend no Render) |
+### ⚠️ Definições obrigatórias no Vercel
+
+Para evitar o erro `No Output Directory named "public" found`, é **obrigatório** configurar:
+
+| Definição (Project Settings) | Valor                          | Notas                                                            |
+|------------------------------|--------------------------------|------------------------------------------------------------------|
+| **Root Directory**           | `frontend`                     | O `package.json` do Next.js está em `frontend/`, não na raiz do repo. |
+| **Framework Preset**         | **Next.js**                    | Se não for detetado automaticamente, selecionar manualmente.     |
+| Build Command                | `next build` *(auto)*          | Deixar o auto quando Framework = Next.js.                        |
+| Output Directory             | `.next` *(auto)*               | **Não** definir como `public` — `public` é só para assets estáticos. |
+| Install Command              | `npm install` *(auto)*         |                                                                  |
+| Environment Variables        | `NEXT_PUBLIC_API_URL`          | URL do backend no Render (ex.: `https://autocell-backend.onrender.com`). |
+
+> **Causa do erro `public`:** quando o Vercel não reconhece o projeto como Next.js, assume o preset "Other" (site estático) e procura a pasta `public/` como output. A correção é garantir que o **Framework Preset = Next.js** e que o **Root Directory = `frontend`**.
+
+### `frontend/vercel.json` (rede de segurança)
+
+Para garantir que o Vercel trata o projeto como Next.js — mesmo que a auto-deteção falhe —, o repositório inclui `frontend/vercel.json`:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs"
+}
+```
+
+Isto força o framework para `nextjs`, pelo que o output directory passa a `.next` e o build command a `next build` automaticamente. **Este ficheiro só é lido se o Root Directory estiver definido como `frontend`.**
+
+### Passos para (re)configurar um projeto já criado no Vercel
+1. Vercel → Project → **Settings** → **General**.
+2. **Root Directory** → `frontend` → Save.
+3. **Settings → Build & Development Settings** → confirmar que o **Framework Preset = Next.js** (se estiver "Other", o build falha com o erro `public`). Se necessário, override e selecionar Next.js.
+4. **Settings → Environment Variables** → adicionar `NEXT_PUBLIC_API_URL`.
+5. **Deployments** → Redeploy.
 
 ---
 
@@ -214,3 +241,4 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 |---------|--------|---------------------------------------------------------------------------------|
 | Inicial | 1.0.0  | Scaffold Next.js 14 + TS + Tailwind + shadcn; rotas `/admin` (sidebar + dashboard + placeholders) e `/staff` (mobile-first com cartões de tarefas); mock data. Build validado. |
 | v1.1.0  | 1.1.0  | Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`): checklist interativa gerada de array, textarea de observações, botão "Concluir Tarefa" desativado até todas as checkboxes marcadas (React State). Componentes UI Checkbox e Textarea. TaskCard agora abre o detalhe via Link. |
+| v1.1.1  | 1.1.1  | Fix deploy Vercel: adicionado `vercel.json` (`"framework": "nextjs"`) para forçar a deteção do framework e evitar o erro `No Output Directory named "public"`. Documentação de deploy atualizada com definições obrigatórias (Root Directory = `frontend`, Framework Preset = Next.js). |

@@ -117,9 +117,26 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | `NEXT_PUBLIC_API_URL` | URL base da API backend (Render). Usada na fase de integração. | `https://autocell-backend.onrender.com` |
 
 ### Deploy na Vercel
-1. Importa o repositório e define **Root Directory** = `frontend`.
-2. Framework Preset: **Next.js** (detetado automaticamente).
-3. Adiciona a variável de ambiente `NEXT_PUBLIC_API_URL`.
+
+> ⚠️ Se aparecer o erro `No Output Directory named "public" found`, é porque o Vercel não detetou o projeto como Next.js. Ver **definições obrigatórias** abaixo.
+
+**Definições obrigatórias (Project Settings):**
+
+| Definição | Valor |
+|-----------|-------|
+| Root Directory | `frontend` |
+| Framework Preset | **Next.js** (se estiver "Other", o build falha) |
+| Build Command | `next build` *(auto)* |
+| Output Directory | `.next` *(auto — não definir como `public`)* |
+| Environment Variables | `NEXT_PUBLIC_API_URL` |
+
+O repositório inclui `frontend/vercel.json` com `"framework": "nextjs"` que força a deteção correta do framework mesmo que a auto-deteção falhe. **Este ficheiro só é lido se o Root Directory = `frontend`.**
+
+**Passos para reconfigurar um projeto já criado:**
+1. Vercel → Project → Settings → General → **Root Directory** = `frontend` → Save.
+2. Settings → Build & Development Settings → **Framework Preset = Next.js**.
+3. Settings → Environment Variables → adicionar `NEXT_PUBLIC_API_URL`.
+4. Deployments → Redeploy.
 
 ---
 
