@@ -48,7 +48,7 @@ frontend/
     │       ├── page.tsx      # Área do Staff (mobile-first)
     │       └── tarefas/[id]/page.tsx  # Detalhe da Tarefa (checklist + concluir)
     ├── components/
-    │   ├── ui/               # shadcn: button, card, badge, avatar, separator, checkbox, textarea
+    │   ├── ui/               # shadcn: button, card, badge, avatar, separator, checkbox, textarea, input
     │   ├── admin/
     │   │   ├── admin-sidebar.tsx    # Sidebar responsiva (desktop fixa / mobile overlay)
     │   │   └── placeholder-page.tsx # Componente de página "Em breve"
@@ -57,7 +57,8 @@ frontend/
     │       └── detalhe-tarefa-client.tsx # Ecrã de detalhe (estado interativo)
     └── lib/
         ├── utils.ts          # cn() — clsx + tailwind-merge
-        └── mock-data.ts      # Dados fictícios (espelham modelos do backend)
+        ├── api.ts             # Helpers de fetch à API real + EMPRESA_ID temporário
+        └── mock-data.ts      # Dados fictícios (ainda usados em /staff e dashboard)
 ```
 
 ---
@@ -70,7 +71,7 @@ A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
 |-----------------|----------------------------------------------------|-------------------|
 | `/`             | Landing page — escolha entre Admin e Staff         | —                 |
 | `/admin`        | Painel de Administração (Dashboard)                | Desktop-first     |
-| `/admin/propriedades` | Placeholder (Propriedades)                   | Desktop-first     |
+| `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first     |
 | `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first     |
 | `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first     |
 | `/staff`        | Área do Staff — tarefas de limpeza do dia          | Mobile-first      |
@@ -83,7 +84,8 @@ A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (emerald).
 - **Dashboard** (`/admin`): cartões de estatística (Propriedades, Staff ativo, Tarefas hoje, Por atribuir), lista de tarefas do dia e estado da equipa com carga de trabalho.
-- Secções **Propriedades**, **Equipa** e **Calendário de Folgas**: páginas placeholder ("Em breve") — apenas layout visual.
+- **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 6).
+- Secções **Equipa** e **Calendário de Folgas**: páginas placeholder ("Em breve") — apenas layout visual.
 
 ### 3.2 Área Staff (`/staff`)
 
@@ -231,14 +233,38 @@ Isto força o framework para `nextjs`, pelo que o output directory passa a `.nex
 - **Branch de desenvolvimento:** `dev`.
 - **Documentação:** sempre que o frontend é alterado, este ficheiro e o `README.md` são atualizados.
 - **Linguagem:** interface e comentários em **pt-pt**.
-- **Sem dependência da API nesta fase:** todos os dados vêm de `mock-data.ts`.
+- **Integração com a API em curso:** a secção de **Propriedades** (`/admin/propriedades`) já consome a API real; as restantes secções (`/staff`, dashboard) ainda usam `mock-data.ts`.
 
 ---
 
-## 11. Histórico de alterações (frontend)
+## 11. Integração com a API backend
+
+### `src/lib/api.ts`
+Helpers centralizados para chamadas à API:
+
+- `API_URL` — lê `process.env.NEXT_PUBLIC_API_URL`.
+- `EMPRESA_ID` — **placeholder estático** (`"COLA_AQUI_O_ID"`). Enquanto não há login/JWT, todos os pedidos admin enviam o header `x-empresa-id` com este valor. **Deve ser substituído pelo `empresa_id` devolvido por `GET /api/admin/setup`** após o primeiro deploy do backend.
+- `adminHeaders()` — headers comuns (`Content-Type` + `x-empresa-id`).
+- `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros (extrai `erro` do corpo JSON do backend).
+- `PropriedadeDTO` — tipo que espelha o modelo `Propriedade` do backend.
+
+### `/admin/propriedades` (Client Component)
+Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
+
+- `useEffect` chama `adminGet('/api/admin/propriedades')` ao montar.
+- Apresenta as propriedades numa **tabela HTML** (Tailwind) com colunas **Nome**, **Smoobu ID**, **Tempo de Limpeza**, **Estado**.
+- Estados visuais: loading (spinner), erro (cartão vermelho com “Tentar novamente”), vazio (call-to-action).
+- Botão **“Nova Propriedade”** no topo → abre formulário **inline** (Card) com campos **Nome**, **Smoobu ID**, **Tempo de Limpeza**.
+- Ao submeter: `adminPost('/api/admin/propriedades', { ... })`, limpa o formulário e volta a chamar `carregar()` para atualizar a tabela automaticamente.
+- Validações no cliente: Nome e Smoobu ID obrigatórios; Tempo de Limpeza numérico `>= 0`.
+
+---
+
+## 12. Histórico de alterações (frontend)
 
 | Data    | Versão | Alteração                                                                       |
 |---------|--------|---------------------------------------------------------------------------------|
 | Inicial | 1.0.0  | Scaffold Next.js 14 + TS + Tailwind + shadcn; rotas `/admin` (sidebar + dashboard + placeholders) e `/staff` (mobile-first com cartões de tarefas); mock data. Build validado. |
 | v1.1.0  | 1.1.0  | Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`): checklist interativa gerada de array, textarea de observações, botão "Concluir Tarefa" desativado até todas as checkboxes marcadas (React State). Componentes UI Checkbox e Textarea. TaskCard agora abre o detalhe via Link. |
 | v1.1.1  | 1.1.1  | Fix deploy Vercel: adicionado `vercel.json` (`"framework": "nextjs"`) para forçar a deteção do framework e evitar o erro `No Output Directory named "public"`. Documentação de deploy atualizada com definições obrigatórias (Root Directory = `frontend`, Framework Preset = Next.js). |
+| v1.2.0  | 1.2.0  | Integração com a API real na secção Propriedades: `lib/api.ts` (helpers `adminGet`/`adminPost` + `EMPRESA_ID` placeholder via header `x-empresa-id`); `/admin/propriedades` convertido em Client Component com `useEffect` (GET), tabela HTML (Nome, Smoobu ID, Tempo, Estado) e formulário inline de criação (POST + refresh automático). Componente UI `Input`. Mock-data abandonado nesta secção. |

@@ -105,7 +105,7 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 |------|------|-----------|
 | `/` | — | Landing page (escolha Admin / Staff) |
 | `/admin` | Admin (desktop-first) | Dashboard com sidebar (Dashboard, Propriedades, Equipa, Calendário de Folgas) |
-| `/admin/propriedades` | Admin | Placeholder (Propriedades) |
+| `/admin/propriedades` | Admin | **Consome a API real** — tabela de propriedades (GET) + formulário de criação (POST) |
 | `/admin/equipa` | Admin | Placeholder (Equipa) |
 | `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
 | `/staff` | Staff (mobile-first) | Cabeçalho "Bem-vindo, [Nome]" + lista de cartões de tarefas de limpeza do dia |
