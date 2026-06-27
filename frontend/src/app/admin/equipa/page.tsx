@@ -77,6 +77,7 @@ export default function EquipaPage() {
     email: "",
     password: "",
     role: "staff" as Role,
+    responsavel_id: "" as string,
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -88,6 +89,7 @@ export default function EquipaPage() {
     email: "",
     role: "staff" as Role,
     password: "", // vazia = não alterar
+    responsavel_id: "" as string,
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErro, setEditErro] = useState<string | null>(null);
@@ -95,6 +97,12 @@ export default function EquipaPage() {
   // Modal de confirmação de eliminação
   const [eliminando, setEliminando] = useState<UtilizadorDTO | null>(null);
   const [elimSubmitting, setElimSubmitting] = useState(false);
+
+  // Utilizadores que podem ser responsáveis (admin + manager).
+  // Usado para popular o select de Responsável nos formulários.
+  const responsaveisPossiveis = utilizadores.filter(
+    (u) => u.role === "admin" || u.role === "manager"
+  );
 
   /** Carrega os utilizadores da API. */
   const carregar = useCallback(async () => {
@@ -137,8 +145,9 @@ export default function EquipaPage() {
         email: form.email.trim(),
         password: form.password,
         role: form.role,
+        responsavel_id: form.responsavel_id || null,
       });
-      setForm({ nome: "", email: "", password: "", role: "staff" });
+      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -151,7 +160,13 @@ export default function EquipaPage() {
   /** Abre o modal de edição com os dados atuais do utilizador. */
   function abrirEdicao(u: UtilizadorDTO) {
     setEditando(u);
-    setEditForm({ nome: u.nome, email: u.email, role: u.role, password: "" });
+    setEditForm({
+      nome: u.nome,
+      email: u.email,
+      role: u.role,
+      password: "",
+      responsavel_id: u.responsavel_id ?? "",
+    });
     setEditErro(null);
   }
 
@@ -176,6 +191,7 @@ export default function EquipaPage() {
         nome: editForm.nome.trim(),
         email: editForm.email.trim(),
         role: editForm.role,
+        responsavel_id: editForm.responsavel_id || null,
       };
       if (editForm.password) body.password = editForm.password;
 
@@ -260,7 +276,7 @@ export default function EquipaPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmeter} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-1.5">
                   <label htmlFor="nome" className="text-sm font-medium">
                     Nome
@@ -319,7 +335,29 @@ export default function EquipaPage() {
                   >
                     <option value="staff">Staff</option>
                     <option value="manager">Responsável</option>
-                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="responsavel" className="text-sm font-medium">
+                    Responsável{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (opcional)
+                    </span>
+                  </label>
+                  <select
+                    id="responsavel"
+                    value={form.responsavel_id}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, responsavel_id: e.target.value }))
+                    }
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <option value="">— Sem responsável —</option>
+                    {responsaveisPossiveis.map((r) => (
+                      <option key={r._id} value={r._id}>
+                        {r.nome} ({ROLE_LABEL[r.role]})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -348,7 +386,7 @@ export default function EquipaPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", email: "", password: "", role: "staff" });
+                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
                   }}
                   disabled={submitting}
                 >
@@ -400,6 +438,7 @@ export default function EquipaPage() {
                     <th className="px-4 py-3 font-medium">Nome</th>
                     <th className="px-4 py-3 font-medium">Email</th>
                     <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium">Responsável</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
                     <th className="px-4 py-3 text-right font-medium">Ações</th>
                   </tr>
@@ -416,47 +455,57 @@ export default function EquipaPage() {
                           {ROLE_LABEL[u.role]}
                         </Badge>
                       </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {u.responsavel ? u.responsavel.nome : "—"}
+                      </td>
                       <td className="px-4 py-3">
                         <Badge variant={u.ativo ? "success" : "secondary"}>
                           {u.ativo ? "Ativo" : "Inativo"}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          {/* Editar */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => abrirEdicao(u)}
-                            aria-label={`Editar ${u.nome}`}
-                            title="Editar"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          {/* Ativar/Desativar */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleToggleAtivo(u)}
-                            aria-label={u.ativo ? "Desativar" : "Ativar"}
-                            title={u.ativo ? "Desativar" : "Ativar"}
-                          >
-                            <Power className="h-4 w-4" />
-                          </Button>
-                          {/* Eliminar */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => setEliminando(u)}
-                            aria-label={`Eliminar ${u.nome}`}
-                            title="Eliminar"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        {/* Admin: linha só de leitura (sem ações) */}
+                        {u.role === "admin" ? (
+                          <span className="text-xs text-muted-foreground">
+                            —
+                          </span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            {/* Editar */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => abrirEdicao(u)}
+                              aria-label={`Editar ${u.nome}`}
+                              title="Editar"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            {/* Ativar/Desativar */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleToggleAtivo(u)}
+                              aria-label={u.ativo ? "Desativar" : "Ativar"}
+                              title={u.ativo ? "Desativar" : "Ativar"}
+                            >
+                              <Power className="h-4 w-4" />
+                            </Button>
+                            {/* Eliminar */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => setEliminando(u)}
+                              aria-label={`Eliminar ${u.nome}`}
+                              title="Eliminar"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -525,7 +574,34 @@ export default function EquipaPage() {
               >
                 <option value="staff">Staff</option>
                 <option value="manager">Responsável</option>
-                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-responsavel" className="text-sm font-medium">
+                Responsável{" "}
+                <span className="font-normal text-muted-foreground">
+                  (opcional)
+                </span>
+              </label>
+              <select
+                id="edit-responsavel"
+                value={editForm.responsavel_id}
+                onChange={(e) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    responsavel_id: e.target.value,
+                  }))
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">— Sem responsável —</option>
+                {responsaveisPossiveis
+                  .filter((r) => r._id !== editando?._id)
+                  .map((r) => (
+                    <option key={r._id} value={r._id}>
+                      {r.nome} ({ROLE_LABEL[r.role]})
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="space-y-1.5">

@@ -12,6 +12,7 @@ const cors = require('cors');
 const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
+const ausenciaRoutes = require('./routes/ausenciaRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -45,6 +46,9 @@ app.use('/api/auth', authRoutes);
 // rotas que precisam (propriedades). O /setup fica PÚBLICO porque é o
 // endpoint de bootstrap (cria o primeiro utilizador — ainda não há token).
 app.use('/api/admin', adminRoutes);
+
+// Gestão de Ausências (Folgas e Férias) — protegido por auth.
+app.use('/api/admin/ausencias', ausenciaRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Ligação ao MongoDB e arranque do servidor                          */

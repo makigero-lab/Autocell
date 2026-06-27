@@ -78,6 +78,9 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `PUT`  | `/api/admin/equipa/:id` | Atualiza utilizador (nome/email/role/password opcional). **Auth:** JWT. |
 | `PATCH`| `/api/admin/equipa/:id/estado` | Alterna ativo/desativado (inativos não fazem login). **Auth:** JWT. |
 | `DELETE`| `/api/admin/equipa/:id` | Elimina utilizador (não permite auto-eliminação). **Auth:** JWT. |
+| `GET`  | `/api/admin/ausencias` | Lista ausências (folgas/férias) da empresa. **Auth:** JWT. Query: `?futuras=true` |
+| `POST` | `/api/admin/ausencias` | Regista ausência (folga/férias). **Auth:** JWT; **Body:** `utilizador_id`, `data_inicio`, `data_fim`, `tipo`, `notas?` |
+| `DELETE`| `/api/admin/ausencias/:id` | Elimina ausência. **Auth:** JWT. |
 | `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste, **com password de login**). Idempotente. Devolve o `empresa_id`. |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
@@ -115,7 +118,7 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | `/admin` | Admin (protegido, role admin) | Dashboard com sidebar (Dashboard, Propriedades, Equipa, Calendário de Folgas) |
 | `/admin/propriedades` | Admin | **Consome a API real** — tabela de propriedades (GET) + formulário de criação (POST) |
 | `/admin/equipa` | Admin | **Consome a API real** — tabela de utilizadores (GET) + formulário de criação de funcionário (POST) |
-| `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
+| `/admin/calendario` | Admin | **Consome a API real** — calendário de folgas/férias (marcar + eliminar ausências) |
 | `/manager` | Manager (protegido, role manager) | Dashboard do responsável de limpezas (tarefas + equipa) |
 | `/manager/tarefas` | Manager | Placeholder (Tarefas) |
 | `/manager/equipa` | Manager | Placeholder (Equipa) |

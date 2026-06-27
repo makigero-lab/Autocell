@@ -146,7 +146,34 @@ export interface UtilizadorDTO {
   email: string;
   empresa_id: string;
   role: Role;
+  responsavel_id: string | null;
+  responsavel?: {
+    _id: string;
+    nome: string;
+    email: string;
+    role: Role;
+  } | null;
   ativo: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type TipoAusencia = "ferias" | "folga";
+
+export interface AusenciaDTO {
+  _id: string;
+  utilizador_id: string;
+  utilizador?: {
+    _id: string;
+    nome: string;
+    email: string;
+    role: Role;
+  } | null;
+  empresa_id: string;
+  data_inicio: string;
+  data_fim: string;
+  tipo: TipoAusencia;
+  notas?: string;
   createdAt?: string;
   updatedAt?: string;
 }
