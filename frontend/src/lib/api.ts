@@ -107,7 +107,7 @@ export interface LoginResponse {
     id: string;
     nome: string;
     email: string;
-    role: "admin" | "staff";
+    role: "admin" | "manager" | "staff";
     empresa_id: string;
   };
 }

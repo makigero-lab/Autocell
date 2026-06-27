@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
-import { lerUtilizadorDoToken, rotaPorRole } from "@/lib/auth";
+import { lerUtilizadorDoToken, type Role } from "@/lib/auth";
 
 interface RouteGuardProps {
-  /** Role exigida para esta área ("admin" | "staff"). */
-  role: "admin" | "staff";
+  /** Role exigida para esta área ("admin" | "manager" | "staff"). */
+  role: Role;
   children: React.ReactNode;
 }
 

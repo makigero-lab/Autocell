@@ -98,10 +98,12 @@ function extrairDadosReserva(payload) {
  * @returns {Promise<mongoose.Types.ObjectId|null>}
  */
 async function determinarUtilizadorAtribuido(empresaId, range) {
-  // Passo 3 — Procurar todos os Staff ativos da empresa.
+  // Passo 3 — Procurar todos os Staff e Managers ativos da empresa.
+  // (O manager — responsável de limpezas — também pode executar limpezas,
+  //  pelo que entra no load balancing como qualquer staff.)
   const staff = await Utilizador.find({
     empresa_id: empresaId,
-    role: 'staff',
+    role: { $in: ['staff', 'manager'] },
     ativo: true,
   }).lean();
 

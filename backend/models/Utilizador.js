@@ -1,12 +1,19 @@
 /**
  * Modelo: Utilizador
- * Representa um utilizador do sistema (Admin ou Staff) dentro de uma empresa.
+ * Representa um utilizador do sistema dentro de uma empresa.
+ *
+ * Roles (hierarquia):
+ *   - admin   → dono da conta (gestão total: empresas, planos, utilizadores).
+ *   - manager → responsável de limpezas (gere a equipa de staff, vê dashboard
+ *               alargado, pode também executar limpezas).
+ *   - staff   → executante de limpezas (vê apenas as suas tarefas no mobile).
  *
  * Autenticação (v1.3.0):
  *   - `email` é único (índice único) — serve de credencial de login.
  *   - `password_hash` guarda a hash bcrypt da password (nunca a password em claro).
  *
- * O webhook considera apenas utilizadores com role "staff" e ativos=true.
+ * O webhook considera utilizadores com role "staff" OU "manager" e ativos=true
+ * para atribuição de tarefas (o manager também pode executar limpezas).
  */
 const mongoose = require('mongoose');
 
@@ -39,7 +46,7 @@ const utilizadorSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['admin', 'staff'],
+      enum: ['admin', 'manager', 'staff'],
       default: 'staff',
       required: true,
     },

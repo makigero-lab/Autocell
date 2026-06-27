@@ -4,14 +4,15 @@
  * Executado no Edge (servidor) antes de renderizar qualquer página. Lê o
  * cookie `autocell_token` (definido em lib/auth.ts após o login) e:
  *
- *   1. **Rotas privadas** (`/admin/*`, `/staff/*`):
+ *   1. **Rotas privadas** (`/admin/*`, `/manager/*`, `/staff/*`):
  *      - Sem token      → redireciona para /login
  *      - Token inválido → redireciona para /login
  *      - Token válido   → deixa passar
  *        (se o role não corresponder à área → redireciona para o painel certo)
  *
  *   2. **Rotas públicas para autenticados** (`/`, `/login`):
- *      - Com token válido → redireciona para o painel do role (/admin ou /staff)
+ *      - Com token válido → redireciona para o painel do role
+ *        (admin → /admin, manager → /manager, staff → /staff)
  *      - Sem token        → deixa passar (mostra a landing/login)
  *
  *   3. **Outras rotas**: passa sem interferir.
@@ -26,9 +27,11 @@ import type { NextRequest } from "next/server";
 
 const TOKEN_COOKIE = "autocell_token";
 
+type Role = "admin" | "manager" | "staff";
+
 interface JwtPayload {
   id?: string;
-  role?: "admin" | "staff";
+  role?: Role;
   empresa_id?: string;
   exp?: number;
 }
@@ -64,8 +67,10 @@ function descodificarToken(token: string): JwtPayload | null {
   }
 }
 
-function rotaPorRole(role: "admin" | "staff"): string {
-  return role === "admin" ? "/admin" : "/staff";
+function rotaPorRole(role: Role): string {
+  if (role === "admin") return "/admin";
+  if (role === "manager") return "/manager";
+  return "/staff";
 }
 
 export function middleware(req: NextRequest) {
@@ -76,9 +81,10 @@ export function middleware(req: NextRequest) {
 
   // --- Rotas privadas ---
   const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isManager = pathname === "/manager" || pathname.startsWith("/manager/");
   const isStaff = pathname === "/staff" || pathname.startsWith("/staff/");
 
-  if (isAdmin || isStaff) {
+  if (isAdmin || isManager || isStaff) {
     if (!autenticado) {
       // Sem token válido → /login (preserva a rota pretendida em ?from=).
       const loginUrl = req.nextUrl.clone();
@@ -88,14 +94,13 @@ export function middleware(req: NextRequest) {
     }
 
     // Token válido: verifica se o role corresponde à área.
-    const rotaEsperada = rotaPorRole(payload!.role!);
-    if (isAdmin && payload!.role !== "admin") {
-      const url = req.nextUrl.clone();
-      url.pathname = rotaEsperada;
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-    if (isStaff && payload!.role !== "staff") {
+    const role = payload!.role!;
+    const rotaEsperada = rotaPorRole(role);
+    const rotaErrada =
+      (isAdmin && role !== "admin") ||
+      (isManager && role !== "manager") ||
+      (isStaff && role !== "staff");
+    if (rotaErrada) {
       const url = req.nextUrl.clone();
       url.pathname = rotaEsperada;
       url.search = "";
@@ -121,5 +126,5 @@ export const config = {
    * Aplica o middleware apenas às rotas relevantes (ignora _next, api,
    * ficheiros estáticos, etc.).
    */
-  matcher: ["/", "/login", "/admin/:path*", "/staff/:path*"],
+  matcher: ["/", "/login", "/admin/:path*", "/manager/:path*", "/staff/:path*"],
 };

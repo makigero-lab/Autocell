@@ -19,9 +19,11 @@
 const COOKIE_KEY = "autocell_token";
 const COOKIE_DIAS = 7;
 
+export type Role = "admin" | "manager" | "staff";
+
 export interface JwtPayload {
   id: string;
-  role: "admin" | "staff";
+  role: Role;
   empresa_id: string;
   iat?: number;
   exp?: number;
@@ -113,9 +115,12 @@ export function estaAutenticado(): boolean {
 
 /**
  * Determina para onde redirecionar o utilizador após login, com base no role.
- * - admin  -> /admin
- * - staff  -> /staff
+ * - admin   -> /admin   (dono da conta)
+ * - manager -> /manager  (responsável de limpezas)
+ * - staff   -> /staff    (executante de limpezas)
  */
-export function rotaPorRole(role: "admin" | "staff"): string {
-  return role === "admin" ? "/admin" : "/staff";
+export function rotaPorRole(role: Role): string {
+  if (role === "admin") return "/admin";
+  if (role === "manager") return "/manager";
+  return "/staff";
 }

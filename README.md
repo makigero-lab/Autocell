@@ -111,10 +111,13 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | `/admin/propriedades` | Admin | **Consome a API real** — tabela de propriedades (GET) + formulário de criação (POST) |
 | `/admin/equipa` | Admin | Placeholder (Equipa) |
 | `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
+| `/manager` | Manager (protegido, role manager) | Dashboard do responsável de limpezas (tarefas + equipa) |
+| `/manager/tarefas` | Manager | Placeholder (Tarefas) |
+| `/manager/equipa` | Manager | Placeholder (Equipa) |
 | `/staff` | Staff (protegido, role staff, mobile-first) | Cabeçalho "Bem-vindo, [Nome]" + lista de cartões de tarefas de limpeza do dia |
 | `/staff/tarefas/[id]` | Staff (mobile-first) | Detalhe da Tarefa: checklist interativa + observações + botão "Concluir Tarefa" (desativado até todas as checkboxes marcadas) |
 
-> **Proteção de rotas:** `/admin/**` e `/staff/**` exigem token JWT válido (via `middleware.ts` + `RouteGuard`). `/` e `/login` redirecionam utilizadores autenticados para o seu painel. Mock data ainda usado em `/staff` e dashboard; `/admin/propriedades` consome a API real.
+> **Proteção de rotas:** `/admin/**`, `/manager/**` e `/staff/**` exigem token JWT válido (via `middleware.ts` + `RouteGuard`). `/` e `/login` redirecionam utilizadores autenticados para o seu painel (admin→`/admin`, manager→`/manager`, staff→`/staff`). Mock data ainda usado em `/staff`, `/manager` e dashboard admin; `/admin/propriedades` consome a API real.
 
 ### Variáveis de ambiente
 
