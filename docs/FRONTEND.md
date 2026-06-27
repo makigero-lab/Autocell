@@ -243,7 +243,7 @@ Isto força o framework para `nextjs`, pelo que o output directory passa a `.nex
 Helpers centralizados para chamadas à API:
 
 - `API_URL` — lê `process.env.NEXT_PUBLIC_API_URL`.
-- `EMPRESA_ID` — **placeholder estático** (`"COLA_AQUI_O_ID"`). Enquanto não há login/JWT, todos os pedidos admin enviam o header `x-empresa-id` com este valor. **Deve ser substituído pelo `empresa_id` devolvido por `GET /api/admin/setup`** após o primeiro deploy do backend.
+- `EMPRESA_ID` — **ID real do “Cliente Zero” já configurado** (`"6a400c9009e37b27fe0bc362"`, devolvido por `GET /api/admin/setup`). Enquanto não há login/JWT, todos os pedidos admin enviam o header `x-empresa-id` com este valor. (Futuro: substituir por middleware de auth JWT.)
 - `adminHeaders()` — headers comuns (`Content-Type` + `x-empresa-id`).
 - `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros (extrai `erro` do corpo JSON do backend).
 - `PropriedadeDTO` — tipo que espelha o modelo `Propriedade` do backend.
@@ -268,3 +268,4 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 | v1.1.0  | 1.1.0  | Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`): checklist interativa gerada de array, textarea de observações, botão "Concluir Tarefa" desativado até todas as checkboxes marcadas (React State). Componentes UI Checkbox e Textarea. TaskCard agora abre o detalhe via Link. |
 | v1.1.1  | 1.1.1  | Fix deploy Vercel: adicionado `vercel.json` (`"framework": "nextjs"`) para forçar a deteção do framework e evitar o erro `No Output Directory named "public"`. Documentação de deploy atualizada com definições obrigatórias (Root Directory = `frontend`, Framework Preset = Next.js). |
 | v1.2.0  | 1.2.0  | Integração com a API real na secção Propriedades: `lib/api.ts` (helpers `adminGet`/`adminPost` + `EMPRESA_ID` placeholder via header `x-empresa-id`); `/admin/propriedades` convertido em Client Component com `useEffect` (GET), tabela HTML (Nome, Smoobu ID, Tempo, Estado) e formulário inline de criação (POST + refresh automático). Componente UI `Input`. Mock-data abandonado nesta secção. |
+| v1.2.1  | 1.2.1  | `EMPRESA_ID` preenchido com o ID real do “Cliente Zero” (`6a400c9009e37b27fe0bc362`) devolvido por `GET /api/admin/setup`. Placeholder `COLA_AQUI_O_ID` removido. |

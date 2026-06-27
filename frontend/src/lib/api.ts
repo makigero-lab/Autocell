@@ -5,20 +5,14 @@
  *   Ainda NÃO há login/JWT. Para a API conseguir saber a que empresa
  *   pertencem os dados, enviamos o header `x-empresa-id` com um ID estático.
  *
- *   >>> Este ID será substituído pelo ID real depois de corrermos o
- *       endpoint `GET /api/admin/setup` no backend (que cria o "Cliente Zero"
- *       e devolve o `empresa_id` gerado). <<<
- *
- *   Fluxo recomendado:
- *     1. Depois de fazer deploy do backend, chamar `GET /api/admin/setup`.
- *     2. Copiar o `empresa_id` devolvido para a constante abaixo.
- *     3. (Futuro) substituir tudo por um middleware de auth JWT.
+ *   >>> ID real do "Cliente Zero" já colado (devolvido por GET /api/admin/setup). <<<
+ *   (Futuro) substituir tudo por um middleware de auth JWT.
  */
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-// ⚠️ PLACEHOLDER — substituir pelo empresa_id devolvido por GET /api/admin/setup
-export const EMPRESA_ID = "COLA_AQUI_O_ID";
+// ID real da empresa "Cliente Zero" (criado via GET /api/admin/setup).
+export const EMPRESA_ID = "6a400c9009e37b27fe0bc362";
 
 /**
  * Headers comuns a todos os pedidos admin (inclui o x-empresa-id temporário).
