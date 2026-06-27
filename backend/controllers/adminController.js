@@ -267,6 +267,205 @@ exports.criarMembroEquipa = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/admin/equipa/:id
+ * Atualiza Nome, Email e/ou Role de um utilizador, e opcionalmente a password.
+ *
+ * Body (todos opcionais, mas pelo menos um deve vir):
+ *   { nome?, email?, role?, password? }
+ *   - password: se vier, é guardada como NOVA hash bcrypt (mín. 6 chars).
+ *               Se não vier, a password atual é mantida.
+ *
+ * Regras de segurança:
+ *   - O utilizador tem de pertencer à mesma empresa do JWT.
+ *   - Não é possível desativar via este endpoint (usar PATCH /:id/estado).
+ *   - Se o email mudar, tem de continuar único.
+ *
+ * Resposta 200: { utilizador: { ... } } (sem password_hash).
+ */
+exports.atualizarMembroEquipa = async (req, res) => {
+  try {
+    const { ok, empresaId } = extrairEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    const { nome, email, role, password } = req.body || {};
+    if (nome === undefined && email === undefined && role === undefined && password === undefined) {
+      return res.status(400).json({
+        erro: 'Nada para atualizar. Envie nome, email, role e/ou password.',
+      });
+    }
+
+    // Procura o utilizador e garante que pertence à empresa do JWT.
+    const utilizador = await Utilizador.findOne({ _id: id, empresa_id: empresaId });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+
+    // --- Nome ---
+    if (nome !== undefined) {
+      const n = String(nome).trim();
+      if (!n) {
+        return res.status(400).json({ erro: 'nome não pode ser vazio.' });
+      }
+      utilizador.nome = n;
+    }
+
+    // --- Email (com verificação de unicidade se mudou) ---
+    if (email !== undefined) {
+      const emailNormalizado = String(email).toLowerCase().trim();
+      if (!emailNormalizado) {
+        return res.status(400).json({ erro: 'email não pode ser vazio.' });
+      }
+      if (emailNormalizado !== utilizador.email) {
+        const existente = await Utilizador.findOne({ email: emailNormalizado });
+        if (existente) {
+          return res.status(409).json({
+            erro: `Já existe um utilizador com o email "${emailNormalizado}".`,
+          });
+        }
+        utilizador.email = emailNormalizado;
+      }
+    }
+
+    // --- Role ---
+    if (role !== undefined) {
+      if (!['admin', 'manager', 'staff'].includes(role)) {
+        return res.status(400).json({
+          erro: 'Role inválido. Valores permitidos: admin, manager, staff.',
+        });
+      }
+      utilizador.role = role;
+    }
+
+    // --- Password (opcional: só se vier, faz hash nova) ---
+    if (password !== undefined && password !== null && String(password) !== '') {
+      if (String(password).length < 6) {
+        return res.status(400).json({
+          erro: 'A password deve ter pelo menos 6 caracteres.',
+        });
+      }
+      utilizador.password_hash = await bcrypt.hash(String(password), 10);
+    }
+
+    await utilizador.save();
+
+    // Resposta sem password_hash.
+    const resp = utilizador.toObject();
+    delete resp.password_hash;
+    return res.status(200).json({ utilizador: resp });
+  } catch (err) {
+    console.error('❌ atualizarMembroEquipa:', err.message);
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ erro: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(409).json({
+        erro: 'Violação de unicidade.',
+        detalhe: err.keyValue,
+      });
+    }
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * PATCH /api/admin/equipa/:id/estado
+ * Alterna o estado `ativo` do utilizador (ativa ↔ desativa).
+ *
+ * Um utilizador desativado NÃO consegue fazer login (ver authController.login).
+ *
+ * Body (opcional): { ativo: boolean } — se não vier, alterna o estado atual.
+ *
+ * Resposta 200: { utilizador: { ... }, ativo: boolean } (sem password_hash).
+ */
+exports.alternarEstadoMembro = async (req, res) => {
+  try {
+    const { ok, empresaId } = extrairEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    const utilizador = await Utilizador.findOne({ _id: id, empresa_id: empresaId });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+
+    // Se vier `ativo` no body, usa-o; senão alterna.
+    const novoEstado =
+      typeof req.body?.ativo === 'boolean' ? req.body.ativo : !utilizador.ativo;
+
+    utilizador.ativo = novoEstado;
+    await utilizador.save();
+
+    const resp = utilizador.toObject();
+    delete resp.password_hash;
+    return res.status(200).json({ utilizador: resp, ativo: novoEstado });
+  } catch (err) {
+    console.error('❌ alternarEstadoMembro:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * DELETE /api/admin/equipa/:id
+ * Remove permanentemente o utilizador da base de dados.
+ *
+ * Regras de segurança:
+ *   - O utilizador tem de pertencer à mesma empresa do JWT.
+ *   - Não é possível eliminar-se a si próprio (req.user.id) — evita
+ *     o admin ficar sem acesso à conta.
+ *
+ * Resposta 200: { mensagem, utilizador_id }.
+ */
+exports.eliminarMembroEquipa = async (req, res) => {
+  try {
+    const { ok, empresaId } = extrairEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    // Proteção: não permitir eliminar-se a si próprio.
+    if (req.user && req.user.id && String(req.user.id) === String(id)) {
+      return res.status(400).json({
+        erro: 'Não podes eliminar a tua própria conta.',
+      });
+    }
+
+    const utilizador = await Utilizador.findOne({ _id: id, empresa_id: empresaId });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+
+    const nomeEliminado = utilizador.nome;
+    await Utilizador.deleteOne({ _id: id });
+
+    return res.status(200).json({
+      mensagem: `Utilizador "${nomeEliminado}" eliminado com sucesso.`,
+      utilizador_id: id,
+    });
+  } catch (err) {
+    console.error('❌ eliminarMembroEquipa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
 /* ------------------------------------------------------------------ */
 /* Setup do "Cliente Zero" (bootstrap do ambiente de testes)          */
 /* ------------------------------------------------------------------ */

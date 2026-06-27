@@ -292,6 +292,41 @@ Cria um novo membro de equipa (Utilizador) para a empresa.
 - **Resposta (201 Created):** `{ "utilizador": { ... } }` (sem `password_hash`).
 - **Erros:** `400` campos em falta / password < 6 / role inválido; `401` não autenticado; `409` email duplicado; `500` erro interno.
 
+#### `PUT /api/admin/equipa/:id`
+Atualiza Nome, Email e/ou Role de um utilizador, e opcionalmente a password.
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Body (todos opcionais, mas pelo menos um):**
+```json
+{ "nome": "Maria Ferreira", "email": "maria@x.pt", "role": "manager", "password": "novapass123" }
+```
+  - `password`: se vier, é guardada como **nova hash bcrypt** (mín. 6 chars). Se não vier, a atual é mantida.
+- **Regras de segurança:**
+  - O utilizador tem de pertencer à mesma empresa do JWT (`findOne({ _id, empresa_id })`).
+  - Se o email mudar, verifica unicidade global.
+  - Não desativa via este endpoint (usar `PATCH /:id/estado`).
+- **Resposta (200 OK):** `{ "utilizador": { ... } }` (sem `password_hash`).
+- **Erros:** `400` ID inválido / nada para atualizar / password < 6 / role inválido; `401` não autenticado; `404` não encontrado / não pertence à empresa; `409` email duplicado; `500` erro.
+
+#### `PATCH /api/admin/equipa/:id/estado`
+Alterna o estado `ativo` do utilizador (ativa ↔ desativa).
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Body (opcional):** `{ "ativo": true }` — se não vier, alterna o estado atual.
+- **Resposta (200 OK):** `{ "utilizador": { ... }, "ativo": boolean }`.
+- **Comportamento:** um utilizador desativado **não consegue fazer login** (ver `authController.login` → 401 "Utilizador inativo").
+- **Erros:** `400` ID inválido; `401` não autenticado; `404` não encontrado; `500` erro.
+
+#### `DELETE /api/admin/equipa/:id`
+Remove permanentemente o utilizador da base de dados.
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Regras de segurança:**
+  - O utilizador tem de pertencer à mesma empresa do JWT.
+  - **Não é possível eliminar-se a si próprio** (`req.user.id === id` → 400) — evita o admin ficar sem acesso.
+- **Resposta (200 OK):** `{ "mensagem": "Utilizador \"X\" eliminado com sucesso.", "utilizador_id": "..." }`.
+- **Erros:** `400` ID inválido / tentativa de auto-eliminação; `401` não autenticado; `404` não encontrado; `500` erro.
+
 #### `GET /api/admin/setup`  *(PÚBLICO — sem auth)*
 **Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
 
@@ -388,3 +423,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@autocell.pt` + manager `manager@autocell.pt` + staff `joao.limpezas@autocell.pt`, todos com password `autocell123`). |
 | v1.4.1     | 1.4.1  | **Payload Smoobu oficial:** `extrairDadosReserva` atualizada para a estrutura documentada (`{ action, data: { id, arrival, apartment: { id, name } } }`). Mapeamento primário: `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks `??` mantidos para variantes (`content.*`, campos achatados). |
 | v1.5.0     | 1.5.0  | **Gestão de Equipa:** `adminController` com `getEquipa` (lista utilizadores, `.select('-password_hash')`) e `criarMembroEquipa` (valida nome/email/password/role, hash bcrypt, email único); `adminRoutes` com `GET/POST /api/admin/equipa` (protegidos por `auth`). |
+| v1.6.0     | 1.6.0  | **CRUD completo de Utilizadores:** `adminController` com `atualizarMembroEquipa` (PUT — nome/email/role/password opcional com nova hash bcrypt), `alternarEstadoMembro` (PATCH — ativa/desativa, inativos não fazem login), `eliminarMembroEquipa` (DELETE — não permite auto-eliminação); `adminRoutes` com `PUT/PATCH/DELETE /api/admin/equipa/:id` (protegidos por `auth`). Validação de pertença à empresa em todas as operações. |

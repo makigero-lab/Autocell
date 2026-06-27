@@ -75,6 +75,9 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Auth:** JWT (ou `x-empresa-id` legacy); **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
 | `GET`  | `/api/admin/equipa` | Lista os utilizadores da empresa (sem `password_hash`). **Auth:** JWT. |
 | `POST` | `/api/admin/equipa` | Cria membro de equipa (bcrypt hash). **Auth:** JWT; **Body:** `nome`, `email`, `password`, `role?` |
+| `PUT`  | `/api/admin/equipa/:id` | Atualiza utilizador (nome/email/role/password opcional). **Auth:** JWT. |
+| `PATCH`| `/api/admin/equipa/:id/estado` | Alterna ativo/desativado (inativos não fazem login). **Auth:** JWT. |
+| `DELETE`| `/api/admin/equipa/:id` | Elimina utilizador (não permite auto-eliminação). **Auth:** JWT. |
 | `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste, **com password de login**). Idempotente. Devolve o `empresa_id`. |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).

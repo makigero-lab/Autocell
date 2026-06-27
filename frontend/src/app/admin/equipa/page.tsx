@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Users, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  Users,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  Power,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,20 +22,35 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   adminGet,
   adminPost,
+  adminPut,
+  adminPatch,
+  adminDelete,
   type UtilizadorDTO,
   type Role,
 } from "@/lib/api";
 
 /**
- * Página de Equipa — Painel de Administração.
+ * Página de Equipa — Painel de Administração (CRUD completo).
  *
- * Consome a API real (GET/POST /api/admin/equipa) com JWT no header
- * Authorization (via adminGet/adminPost).
+ * Consome a API real (GET/POST/PUT/PATCH/DELETE /api/admin/equipa) com JWT
+ * no header Authorization (via helpers adminGet/adminPost/adminPut/...).
  *
- * Lista os membros da equipa numa tabela (Nome, Email, Role, Estado) e
- * permite adicionar novos via formulário inline.
+ * Lista os membros numa tabela (Nome, Email, Role, Estado, Ações) e permite:
+ *   - Adicionar (formulário inline)
+ *   - Editar (modal: nome, email, role, password opcional)
+ *   - Ativar/Desativar (toggle instantâneo)
+ *   - Eliminar (com confirmação)
  */
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -46,7 +70,7 @@ export default function EquipaPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Estado do formulário de criação
+  // Formulário de criação
   const [mostrarForm, setMostrarForm] = useState(false);
   const [form, setForm] = useState({
     nome: "",
@@ -56,6 +80,21 @@ export default function EquipaPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
+
+  // Modal de edição
+  const [editando, setEditando] = useState<UtilizadorDTO | null>(null);
+  const [editForm, setEditForm] = useState({
+    nome: "",
+    email: "",
+    role: "staff" as Role,
+    password: "", // vazia = não alterar
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editErro, setEditErro] = useState<string | null>(null);
+
+  // Modal de confirmação de eliminação
+  const [eliminando, setEliminando] = useState<UtilizadorDTO | null>(null);
+  const [elimSubmitting, setElimSubmitting] = useState(false);
 
   /** Carrega os utilizadores da API. */
   const carregar = useCallback(async () => {
@@ -99,7 +138,6 @@ export default function EquipaPage() {
         password: form.password,
         role: form.role,
       });
-      // Limpa o formulário e atualiza a tabela.
       setForm({ nome: "", email: "", password: "", role: "staff" });
       setMostrarForm(false);
       await carregar();
@@ -107,6 +145,79 @@ export default function EquipaPage() {
       setFormErro(e instanceof Error ? e.message : "Erro ao criar utilizador.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Abre o modal de edição com os dados atuais do utilizador. */
+  function abrirEdicao(u: UtilizadorDTO) {
+    setEditando(u);
+    setEditForm({ nome: u.nome, email: u.email, role: u.role, password: "" });
+    setEditErro(null);
+  }
+
+  /** Submete a edição (PUT). Password só é enviada se preenchida. */
+  async function handleEditar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editando) return;
+    setEditErro(null);
+
+    if (!editForm.nome.trim() || !editForm.email.trim()) {
+      setEditErro("Nome e Email são obrigatórios.");
+      return;
+    }
+    if (editForm.password && editForm.password.length < 6) {
+      setEditErro("A nova password deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const body: Record<string, unknown> = {
+        nome: editForm.nome.trim(),
+        email: editForm.email.trim(),
+        role: editForm.role,
+      };
+      if (editForm.password) body.password = editForm.password;
+
+      await adminPut(`/api/admin/equipa/${editando._id}`, body);
+      setEditando(null);
+      await carregar();
+    } catch (e) {
+      setEditErro(e instanceof Error ? e.message : "Erro ao atualizar.");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  /** Alterna ativo/desativo (PATCH). */
+  async function handleToggleAtivo(u: UtilizadorDTO) {
+    // Otimismo: atualiza UI imediatamente; reverte se falhar.
+    setUtilizadores((prev) =>
+      prev.map((x) => (x._id === u._id ? { ...x, ativo: !x.ativo } : x))
+    );
+    try {
+      await adminPatch(`/api/admin/equipa/${u._id}/estado`);
+    } catch (e) {
+      // Reverte em caso de erro.
+      setUtilizadores((prev) =>
+        prev.map((x) => (x._id === u._id ? { ...x, ativo: u.ativo } : x))
+      );
+      setErro(e instanceof Error ? e.message : "Erro ao alterar estado.");
+    }
+  }
+
+  /** Elimina utilizador (DELETE) com confirmação. */
+  async function handleEliminar() {
+    if (!eliminando) return;
+    setElimSubmitting(true);
+    try {
+      await adminDelete(`/api/admin/equipa/${eliminando._id}`);
+      setEliminando(null);
+      await carregar();
+    } catch (e) {
+      setEditErro(e instanceof Error ? e.message : "Erro ao eliminar.");
+    } finally {
+      setElimSubmitting(false);
     }
   }
 
@@ -237,12 +348,7 @@ export default function EquipaPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({
-                      nome: "",
-                      email: "",
-                      password: "",
-                      role: "staff",
-                    });
+                    setForm({ nome: "", email: "", password: "", role: "staff" });
                   }}
                   disabled={submitting}
                 >
@@ -260,9 +366,7 @@ export default function EquipaPage() {
           <CardContent className="flex items-center gap-3 p-4 text-sm text-destructive">
             <AlertCircle className="h-5 w-5 shrink-0" />
             <div className="flex-1">
-              <p className="font-medium">
-                Não foi possível carregar a equipa.
-              </p>
+              <p className="font-medium">Não foi possível carregar a equipa.</p>
               <p className="text-xs opacity-80">{erro}</p>
             </div>
             <Button variant="outline" size="sm" onClick={carregar}>
@@ -297,6 +401,7 @@ export default function EquipaPage() {
                     <th className="px-4 py-3 font-medium">Email</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
+                    <th className="px-4 py-3 text-right font-medium">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -316,6 +421,43 @@ export default function EquipaPage() {
                           {u.ativo ? "Ativo" : "Inativo"}
                         </Badge>
                       </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Editar */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => abrirEdicao(u)}
+                            aria-label={`Editar ${u.nome}`}
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {/* Ativar/Desativar */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleToggleAtivo(u)}
+                            aria-label={u.ativo ? "Desativar" : "Ativar"}
+                            title={u.ativo ? "Desativar" : "Ativar"}
+                          >
+                            <Power className="h-4 w-4" />
+                          </Button>
+                          {/* Eliminar */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => setEliminando(u)}
+                            aria-label={`Eliminar ${u.nome}`}
+                            title="Eliminar"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -324,6 +466,180 @@ export default function EquipaPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal de Edição */}
+      <Dialog
+        open={editando !== null}
+        onOpenChange={(o) => !o && setEditando(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle>Editar Utilizador</DialogTitle>
+            <DialogDescription>
+              Atualiza os dados do funcionário. Deixa a password vazia para
+              manter a atual.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setEditando(null)} />
+        </DialogHeader>
+        <form onSubmit={handleEditar}>
+          <DialogContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="edit-nome" className="text-sm font-medium">
+                Nome
+              </label>
+              <Input
+                id="edit-nome"
+                value={editForm.nome}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, nome: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-email" className="text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, email: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-role" className="text-sm font-medium">
+                Role
+              </label>
+              <select
+                id="edit-role"
+                value={editForm.role}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, role: e.target.value as Role }))
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="staff">Staff</option>
+                <option value="manager">Responsável</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-password" className="text-sm font-medium">
+                Nova Password{" "}
+                <span className="font-normal text-muted-foreground">
+                  (opcional)
+                </span>
+              </label>
+              <Input
+                id="edit-password"
+                type="password"
+                value={editForm.password}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, password: e.target.value }))
+                }
+                placeholder="Deixa vazio para manter"
+              />
+              <p className="text-xs text-muted-foreground">
+                Útil para redefinir a password se o funcionário se esquecer.
+              </p>
+            </div>
+
+            {editErro && (
+              <p className="flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4" />
+                {editErro}
+              </p>
+            )}
+          </DialogContent>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditando(null)}
+              disabled={editSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={editSubmitting}>
+              {editSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A guardar…
+                </>
+              ) : (
+                "Guardar Alterações"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* Modal de Confirmação de Eliminação */}
+      <Dialog
+        open={eliminando !== null}
+        onOpenChange={(o) => !o && setEliminando(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle>Eliminar Utilizador</DialogTitle>
+            <DialogDescription>
+              Esta ação é permanente e não pode ser desfeita.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setEliminando(null)} />
+        </DialogHeader>
+        <DialogContent className="space-y-3">
+          <p className="text-sm">
+            Tens a certeza que queres eliminar{" "}
+            <span className="font-semibold">{eliminando?.nome}</span> (
+            {eliminando?.email})?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            O utilizador perderá imediatamente o acesso à plataforma. Se só
+            quiseres suspender o acesso temporariamente, usa o botão de
+            Desativar.
+          </p>
+          {editErro && (
+            <p className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              {editErro}
+            </p>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setEliminando(null)}
+            disabled={elimSubmitting}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleEliminar}
+            disabled={elimSubmitting}
+          >
+            {elimSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                A eliminar…
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4" />
+                Eliminar Definitivamente
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
