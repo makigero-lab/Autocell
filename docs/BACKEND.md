@@ -26,14 +26,17 @@ backend/
 ├── .env.example              # Modelo das variáveis de ambiente (a copiar para .env)
 ├── .gitignore                # Ignora node_modules, .env, logs, etc.
 ├── controllers/
-│   └── webhookController.js  # Webhook do Smoobu: atribuição de tarefas (lógica central)
+│   ├── webhookController.js  # Webhook do Smoobu: atribuição de tarefas (lógica central)
+│   └── adminController.js    # Painel de Administração + setup Cliente Zero
 ├── models/                   # Modelos Mongoose (ODM do MongoDB)
+│   ├── Empresa.js            #   Entidade principal (multi-tenant)
 │   ├── Propriedade.js        #   Alojamento sincronizado com o Smoobu
 │   ├── Utilizador.js         #   Admin / Staff de uma empresa
 │   ├── Ausencia.js           #   Indisponibilidade de Staff num dia
 │   └── Tarefa.js             #   Tarefa de limpeza gerada por reserva
 └── routes/
-    └── webhookRoutes.js      # POST /webhooks/smoobu
+    ├── webhookRoutes.js      # POST /webhooks/smoobu
+    └── adminRoutes.js        # GET/POST /api/admin/propriedades, GET /api/admin/setup
 ```
 
 ---
@@ -47,7 +50,7 @@ O fluxo de arranque segue uma sequência segura:
 3. **Middlewares:**
    - `cors()` — habilita respostas a pedidos vindos de outras origens (essencial para o frontend na Vercel comunicar com a API no Render).
    - `express.json()` — faz parse do corpo dos pedidos em JSON, disponibilizando-os em `req.body`.
-4. **Rotas** — `GET /` (healthcheck) e montagem de `/webhooks` (ver secção 6).
+4. **Rotas** — `GET /` (healthcheck), montagem de `/webhooks` e `/api/admin` (ver secção 6).
 5. **Ligação ao MongoDB** — `mongoose.connect(process.env.MONGODB_URI)`.
    - Em **caso de sucesso**: regista mensagem e **só depois** arranca o servidor HTTP com `app.listen(PORT)`. Isto garante que a API só recebe tráfego quando a base de dados está acessível.
    - Em **caso de erro**: regista o erro e termina o processo (`process.exit(1)`), evitando arrancar um servidor sem acesso à BD.
@@ -59,7 +62,16 @@ O fluxo de arranque segue uma sequência segura:
 
 ## 3.1. Modelos de dados (Mongoose)
 
-O sistema gira em torno de 4 coleções. Todas usam `timestamps: true` (createdAt/updatedAt).
+O sistema gira em torno de 5 coleções. Todas usam `timestamps: true` (createdAt/updatedAt).
+
+### `Empresa`
+Entidade principal do SaaS (multi-tenant). Cada empresa agrupa Propriedades e Utilizadores.
+
+| Campo         | Tipo    | Notas                                              |
+|---------------|---------|----------------------------------------------------|
+| `nome`        | String  | Obrigatório, trim, indexado.                       |
+| `nif`         | String  | Opcional, trim.                                    |
+| `plano_ativo` | Boolean | Default `true`.                                    |
 
 ### `Propriedade`
 Representa um alojamento sincronizado com o Smoobu.
@@ -109,7 +121,7 @@ Tarefa de limpeza gerada a partir de uma reserva do Smoobu.
 | `tipo`                  | String   | `enum: ['limpeza','check_in','check_out','manutencao','outro']`.   |
 | `estado`                | String   | `enum: ['por_atribuir','atribuida','em_curso','concluida','cancelada']`. |
 
-> Nota: `empresa_id` é uma referência a `Empresa`. O modelo `Empresa` será criado numa fase posterior; por agora é tratado como `ObjectId`.
+> Nota: `empresa_id` é uma referência a `Empresa` (modelo criado na v1.2.0).
 
 ---
 
@@ -192,6 +204,62 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 ```
 - **Resultado (assíncrono):** é criado um documento `Tarefa` com `utilizador_id` preenchido (Staff com menor carga) ou `null` (sem disponíveis / erro). O resultado é registado nos logs do servidor.
 
+### 6.1. Painel de Administração (`/api/admin`)
+
+> ⚠️ **Autenticação temporária:** enquanto não há JWT, o `empresa_id` é lido do **header `x-empresa-id`** em todos os endpoints abaixo. Esta solução será substituída por um middleware de auth que faça parse do token e injete `req.empresaId`.
+
+#### `GET /api/admin/propriedades`
+Devolve as propriedades da empresa (ordenadas por `nome`).
+
+- **Header obrigatório:** `x-empresa-id: <ObjectId>`
+- **Resposta (200 OK):**
+```json
+{
+  "propriedades": [
+    { "_id": "...", "smoobu_id": "99999", "nome": "Casa Teste", "empresa_id": "...", "tempo_limpeza_minutos": 60, "ativo": true, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+- **Erros:** `400` se faltar o header / for ObjectId inválido; `500` erro interno.
+
+#### `POST /api/admin/propriedades`
+Cria uma propriedade para a empresa.
+
+- **Header obrigatório:** `x-empresa-id: <ObjectId>`
+- **Body:**
+```json
+{
+  "smoobu_id": "99999",
+  "nome": "Casa Teste",
+  "tempo_limpeza_minutos": 60
+}
+```
+  - `smoobu_id` (obrigatório, único global) — ID do apartment no Smoobu.
+  - `nome` (obrigatório).
+  - `tempo_limpeza_minutos` (opcional, default `60`, tem de ser `>= 0`).
+- **Resposta (201 Created):** `{ "propriedade": { ... } }`
+- **Erros:** `400` campos em falta / `tempo_limpeza_minutos` inválido; `409` se `smoobu_id` já existir; `500` erro interno.
+
+#### `GET /api/admin/setup`
+**Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
+
+- 1 **Empresa** «O Meu Alojamento Local» (procura por `nome` para não duplicar).
+- 1 **Utilizador Staff** «João Limpezas» (procura por `nome` + `empresa_id`).
+- 1 **Propriedade** «Casa Teste» (`smoobu_id: '99999'`) (procura por `smoobu_id`).
+
+- **Resposta (200 OK):**
+```json
+{
+  "mensagem": "Cliente Zero criado com sucesso.",
+  "empresa_id": "<ObjectId>",
+  "empresa":  { "id": "...", "nome": "O Meu Alojamento Local", "plano_ativo": true, "criada": true },
+  "staff":    { "id": "...", "nome": "João Limpezas", "role": "staff", "criado": true },
+  "propriedade": { "id": "...", "nome": "Casa Teste", "smoobu_id": "99999", "criada": true }
+}
+```
+- Se já existir tudo, devolve `mensagem: "Cliente Zero já existia (nada foi alterado)."` com `criada/criado: false`.
+- **Uso típico:** chamar uma vez após o primeiro deploy para obter o `empresa_id`, que depois se usa no header `x-empresa-id` dos outros endpoints.
+
 ---
 
 ## 7. Deploy no Render
@@ -222,3 +290,4 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 |------------|--------|---------------------------------------------------------------------|
 | Inicial    | 1.0.0  | Criação da estrutura base: `package.json`, `server.js`, `.env.example`, `.gitignore`. Ligação ao MongoDB e rota de teste `GET /`. |
 | v1.1.0     | 1.1.0  | Lógica central: modelos `Propriedade`, `Utilizador`, `Ausencia`, `Tarefa`; `controllers/webhookController.js` (fluxo estrito de atribuição com filtro de ausências + load balancing); `routes/webhookRoutes.js` (`POST /webhooks/smoobu`); resposta 200 imediata + processamento assíncrono; tratamento de erros robusto. |
+| v1.2.0     | 1.2.0  | Painel de Administração: modelo `Empresa` (nome, nif, plano_ativo); `controllers/adminController.js` (`getPropriedades`, `criarPropriedade`, `setupClienteZero`); `routes/adminRoutes.js` (`GET/POST /api/admin/propriedades`, `GET /api/admin/setup`); montagem em `server.js`. `empresa_id` via header `x-empresa-id` (sem JWT ainda). |

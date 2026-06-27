@@ -69,6 +69,9 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 |--------|------|-----------|
 | `GET`  | `/`  | Healthcheck. Devolve `{ "status": "API do Alojamento Local online e ligada à BD!" }` |
 | `POST` | `/webhooks/smoobu` | Webhook do Smoobu (nova reserva). Cria a Tarefa de limpeza aplicando filtro de ausências + load balancing. Responde `200` imediato e processa de forma assíncrona. |
+| `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Header:** `x-empresa-id`. |
+| `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Header:** `x-empresa-id`; **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
+| `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste). Idempotente. Devolve o `empresa_id`. |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
 

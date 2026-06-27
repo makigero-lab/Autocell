@@ -10,6 +10,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 
 const webhookRoutes = require('./routes/webhookRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -34,6 +35,9 @@ app.get('/', (req, res) => {
 
 // Webhooks de integrações externas (Smoobu, etc.).
 app.use('/webhooks', webhookRoutes);
+
+// Painel de Administração (empresa_id via header x-empresa-id enquanto não há JWT).
+app.use('/api/admin', adminRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Ligação ao MongoDB e arranque do servidor                          */
