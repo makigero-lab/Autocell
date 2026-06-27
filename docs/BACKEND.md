@@ -257,6 +257,41 @@ Cria uma propriedade para a empresa.
 - **Resposta (201 Created):** `{ "propriedade": { ... } }`
 - **Erros:** `400` campos em falta / `tempo_limpeza_minutos` inválido; `401` não autenticado; `409` se `smoobu_id` já existir; `500` erro interno.
 
+#### `GET /api/admin/equipa`
+Lista todos os utilizadores da empresa (qualquer role), ordenados por `nome`.
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Resposta (200 OK):**
+```json
+{
+  "utilizadores": [
+    { "_id": "...", "nome": "João Limpezas", "email": "joao.limpezas@autocell.pt", "empresa_id": "...", "role": "staff", "ativo": true, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+- **Nota:** a `password_hash` **nunca** é devolvida (`.select('-password_hash')`).
+- **Erros:** `400` empresa_id em falta/inválido; `401` não autenticado; `500` erro interno.
+
+#### `POST /api/admin/equipa`
+Cria um novo membro de equipa (Utilizador) para a empresa.
+
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Body:**
+```json
+{
+  "nome": "Maria Ferreira",
+  "email": "maria.ferreira@autocell.pt",
+  "password": "segredo123",
+  "role": "staff"
+}
+```
+  - `nome` (obrigatório).
+  - `email` (obrigatório, único global, normalizado para lowercase).
+  - `password` (obrigatória, mín. 6 caracteres — guardada como hash bcrypt, nunca em claro).
+  - `role` (opcional, default `'staff'`; enum `['admin','manager','staff']`).
+- **Resposta (201 Created):** `{ "utilizador": { ... } }` (sem `password_hash`).
+- **Erros:** `400` campos em falta / password < 6 / role inválido; `401` não autenticado; `409` email duplicado; `500` erro interno.
+
 #### `GET /api/admin/setup`  *(PÚBLICO — sem auth)*
 **Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
 
@@ -352,3 +387,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
 | v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@autocell.pt` + manager `manager@autocell.pt` + staff `joao.limpezas@autocell.pt`, todos com password `autocell123`). |
 | v1.4.1     | 1.4.1  | **Payload Smoobu oficial:** `extrairDadosReserva` atualizada para a estrutura documentada (`{ action, data: { id, arrival, apartment: { id, name } } }`). Mapeamento primário: `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks `??` mantidos para variantes (`content.*`, campos achatados). |
+| v1.5.0     | 1.5.0  | **Gestão de Equipa:** `adminController` com `getEquipa` (lista utilizadores, `.select('-password_hash')`) e `criarMembroEquipa` (valida nome/email/password/role, hash bcrypt, email único); `adminRoutes` com `GET/POST /api/admin/equipa` (protegidos por `auth`). |

@@ -100,6 +100,19 @@ export interface PropriedadeDTO {
   updatedAt?: string;
 }
 
+export type Role = "admin" | "manager" | "staff";
+
+export interface UtilizadorDTO {
+  _id: string;
+  nome: string;
+  email: string;
+  empresa_id: string;
+  role: Role;
+  ativo: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** Resposta do POST /api/auth/login */
 export interface LoginResponse {
   token: string;

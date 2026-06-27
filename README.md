@@ -73,6 +73,8 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `GET`  | `/api/auth/me` | Dados do utilizador autenticado. **Header:** `Authorization: Bearer <token>`. |
 | `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Auth:** JWT (ou `x-empresa-id` legacy). |
 | `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Auth:** JWT (ou `x-empresa-id` legacy); **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
+| `GET`  | `/api/admin/equipa` | Lista os utilizadores da empresa (sem `password_hash`). **Auth:** JWT. |
+| `POST` | `/api/admin/equipa` | Cria membro de equipa (bcrypt hash). **Auth:** JWT; **Body:** `nome`, `email`, `password`, `role?` |
 | `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste, **com password de login**). Idempotente. Devolve o `empresa_id`. |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
@@ -109,7 +111,7 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | `/login` | — | **Login** (POST /api/auth/login; redirect admin→`/admin`, staff→`/staff` ou `?from=`); autenticados são redirecionados |
 | `/admin` | Admin (protegido, role admin) | Dashboard com sidebar (Dashboard, Propriedades, Equipa, Calendário de Folgas) |
 | `/admin/propriedades` | Admin | **Consome a API real** — tabela de propriedades (GET) + formulário de criação (POST) |
-| `/admin/equipa` | Admin | Placeholder (Equipa) |
+| `/admin/equipa` | Admin | **Consome a API real** — tabela de utilizadores (GET) + formulário de criação de funcionário (POST) |
 | `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
 | `/manager` | Manager (protegido, role manager) | Dashboard do responsável de limpezas (tarefas + equipa) |
 | `/manager/tarefas` | Manager | Placeholder (Tarefas) |
