@@ -1,9 +1,8 @@
 import {
-  Building2,
-  Users,
   ClipboardList,
-  AlertCircle,
+  Users,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 
 import {
@@ -14,28 +13,21 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  resumoDashboard,
-  equipa,
-  tarefasHoje,
-} from "@/lib/mock-data";
+import { equipa, tarefasHoje, resumoDashboard } from "@/lib/mock-data";
 
 /**
- * Dashboard do Admin (/admin).
- * Apenas layout visual inicial com dados fictícios.
+ * Dashboard do Responsável de Limpezas (/manager).
+ *
+ * Vista alargada: tarefas do dia + estado da equipa (com carga de trabalho).
+ * (Ainda usa mock data — integração com API real numa fase posterior.)
  */
-export default function AdminDashboardPage() {
+export default function ManagerDashboardPage() {
+  // Staff + Managers contam para "equipa operacional".
+  const equipaOperacional = equipa.filter(
+    (m) => m.role === "staff" || m.role === "manager"
+  );
+
   const stats = [
-    {
-      label: "Propriedades",
-      value: resumoDashboard.totalPropriedades,
-      icon: Building2,
-    },
-    {
-      label: "Staff ativo",
-      value: resumoDashboard.membrosEquipaAtivos,
-      icon: Users,
-    },
     {
       label: "Tarefas hoje",
       value: resumoDashboard.tarefasHoje,
@@ -46,20 +38,24 @@ export default function AdminDashboardPage() {
       value: resumoDashboard.tarefasPorAtribuir,
       icon: AlertCircle,
     },
+    {
+      label: "Equipa operacional",
+      value: equipaOperacional.filter((m) => m.ativo).length,
+      icon: Users,
+    },
   ];
 
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-6 lg:p-8">
-      {/* Cabeçalho da página (desktop) */}
       <div className="hidden flex-col gap-1 lg:flex">
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
-          Visão geral da operação de hoje.
+          Visão operacional das limpezas de hoje.
         </p>
       </div>
 
       {/* Cartões de estatística */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
@@ -82,14 +78,13 @@ export default function AdminDashboardPage() {
         })}
       </div>
 
-      {/* Conteúdo principal em duas colunas (desktop) */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Tarefas do dia */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Tarefas de hoje</CardTitle>
             <CardDescription>
-              Limpezas e check-outs atribuídos automaticamente pelo sistema.
+              Limpezas atribuídas automaticamente pelo sistema.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -129,31 +124,30 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-3">
-              {equipa
-                .filter((m) => m.role === "staff" || m.role === "manager")
-                .map((m) => (
-                  <li
-                    key={m.id}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          m.ativo ? "bg-emerald-500" : "bg-muted-foreground/40"
-                        }`}
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium">{m.nome}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {m.tarefas_hoje} tarefas
-                        </span>
-                      </div>
+              {equipaOperacional.map((m) => (
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        m.ativo ? "bg-emerald-500" : "bg-muted-foreground/40"
+                      }`}
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">{m.nome}</span>
+                      <span className="text-xs capitalize text-muted-foreground">
+                        {m.role === "manager" ? "Responsável" : m.role} ·{" "}
+                        {m.tarefas_hoje} tarefas
+                      </span>
                     </div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {m.carga_minutos} min
-                    </span>
-                  </li>
-                ))}
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {m.carga_minutos} min
+                  </span>
+                </li>
+              ))}
             </ul>
           </CardContent>
         </Card>

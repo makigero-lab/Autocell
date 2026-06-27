@@ -175,12 +175,30 @@ exports.criarPropriedade = async (req, res) => {
 exports.setupClienteZero = async (req, res) => {
   try {
     const NOME_EMPRESA = 'O Meu Alojamento Local';
-    const NOME_STAFF = 'João Limpezas';
-    const EMAIL_STAFF = 'joao.limpezas@autocell.pt';
-    // Password de teste do Cliente Zero (em produção, o utilizador deve alterá-la).
-    const PASSWORD_STAFF = 'autocell123';
     const NOME_PROPRIEDADE = 'Casa Teste';
     const SMOOBU_ID_TESTE = '99999';
+    // Password comum de teste do Cliente Zero (em produção, cada utilizador
+    // deve alterar a sua password após o primeiro login).
+    const PASSWORD_TESTE = 'autocell123';
+
+    // Utilizadores a garantir (admin + manager + staff).
+    const UTILIZADORES_TESTE = [
+      {
+        nome: 'Gestor Autocell', // admin — para ti (dono da conta)
+        email: 'admin@autocell.pt',
+        role: 'admin',
+      },
+      {
+        nome: 'Responsável Limpezas', // manager — gere a equipa de staff
+        email: 'manager@autocell.pt',
+        role: 'manager',
+      },
+      {
+        nome: 'João Limpezas', // staff — executante de limpezas
+        email: 'joao.limpezas@autocell.pt',
+        role: 'staff',
+      },
+    ];
 
     // 1) Empresa — não duplicar (procura por nome).
     let empresa = await Empresa.findOne({ nome: NOME_EMPRESA });
@@ -193,31 +211,49 @@ exports.setupClienteZero = async (req, res) => {
       empresaCriada = true;
     }
 
-    // 2) Utilizador Staff — não duplicar (procura por email único).
-    let staff = await Utilizador.findOne({ email: EMAIL_STAFF });
-    let staffCriado = false;
-    let passwordDefinida = false;
-    if (!staff) {
-      // Cria o staff já com a hash da password.
-      const password_hash = await bcrypt.hash(PASSWORD_STAFF, 10);
-      staff = await Utilizador.create({
-        nome: NOME_STAFF,
-        email: EMAIL_STAFF,
-        password_hash,
-        empresa_id: empresa._id,
-        role: 'staff',
-        ativo: true,
+    // 2) Utilizadores (admin + manager + staff) — não duplicar (email único).
+    //    Para cada um: cria se não existir, ou define password se existir sem.
+    const utilizadores = [];
+    for (const u of UTILIZADORES_TESTE) {
+      let user = await Utilizador.findOne({ email: u.email });
+      let criado = false;
+      let passwordDefinida = false;
+
+      if (!user) {
+        const password_hash = await bcrypt.hash(PASSWORD_TESTE, 10);
+        user = await Utilizador.create({
+          nome: u.nome,
+          email: u.email,
+          password_hash,
+          empresa_id: empresa._id,
+          role: u.role,
+          ativo: true,
+        });
+        criado = true;
+        passwordDefinida = true;
+      } else if (!user.password_hash) {
+        // Retrocompatibilidade: utilizador criado antes do auth, sem password.
+        const password_hash = await bcrypt.hash(PASSWORD_TESTE, 10);
+        user.empresa_id = user.empresa_id || empresa._id;
+        user.password_hash = password_hash;
+        // Garante que o role está correto (caso tenha sido criado com role antigo).
+        user.role = u.role;
+        await user.save();
+        passwordDefinida = true;
+      }
+
+      utilizadores.push({
+        id: user._id,
+        nome: user.nome,
+        email: user.email,
+        role: user.role,
+        criado,
+        password_definida: passwordDefinida,
+        credenciais_teste: {
+          email: u.email,
+          password: PASSWORD_TESTE,
+        },
       });
-      staffCriado = true;
-      passwordDefinida = true;
-    } else if (!staff.password_hash) {
-      // Retrocompatibilidade: staff criado antes do auth, sem password.
-      // Garante que pertence à empresa certa e define a password.
-      const password_hash = await bcrypt.hash(PASSWORD_STAFF, 10);
-      staff.empresa_id = staff.empresa_id || empresa._id;
-      staff.password_hash = password_hash;
-      await staff.save();
-      passwordDefinida = true;
     }
 
     // 3) Propriedade — não duplicar (procura por smoobu_id único).
@@ -233,8 +269,13 @@ exports.setupClienteZero = async (req, res) => {
       propriedadeCriada = true;
     }
 
+    const algoCriado =
+      empresaCriada ||
+      utilizadores.some((u) => u.criado) ||
+      propriedadeCriada;
+
     return res.status(200).json({
-      mensagem: empresaCriada || staffCriado || propriedadeCriada
+      mensagem: algoCriado
         ? 'Cliente Zero criado com sucesso.'
         : 'Cliente Zero já existia (nada foi alterado).',
       empresa_id: empresa._id,
@@ -244,20 +285,8 @@ exports.setupClienteZero = async (req, res) => {
         plano_ativo: empresa.plano_ativo,
         criada: empresaCriada,
       },
-      staff: {
-        id: staff._id,
-        nome: staff.nome,
-        email: staff.email,
-        role: staff.role,
-        criado: staffCriado,
-        password_definida: passwordDefinida,
-        // Credenciais de teste (apenas em ambiente de setup, para o utilizador
-        // poder testar o login). Em produção, remover este bloco.
-        credenciais_teste: {
-          email: EMAIL_STAFF,
-          password: PASSWORD_STAFF,
-        },
-      },
+      // 3 utilizadores: admin (dono), manager (responsável limpezas), staff (executante).
+      utilizadores,
       propriedade: {
         id: propriedade._id,
         nome: propriedade.nome,

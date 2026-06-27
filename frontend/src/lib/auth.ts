@@ -1,42 +1,76 @@
 /**
  * Utilitários de Autenticação (frontend) — Autocell
  *
- * Gere o token JWT no navegador:
- *   - guardado em localStorage (chave `autocell_token`)
- *   - funções para guardar / ler / remover
- *   - helper para descodificar o payload (sem verificar a assinatura — isso
+ * Gere o token JWT no navegador através de um **cookie** (em vez de localStorage),
+ * de forma a que o `middleware.ts` do Next.js consiga lê-lo no servidor e
+ * proteger/bloquear rotas antes de renderizar a página.
+ *
+ *   - Cookie: `autocell_token` (SameSite=Lax, path=/, expira em 7 dias — alinhado
+ *     com a expiração do JWT no backend).
+ *   - Funções para guardar / ler / remover.
+ *   - Helper para descodificar o payload (sem verificar a assinatura — isso
  *     é responsabilidade do backend; o frontend só lê os dados para UX).
  *
- * NOTA: localStorage é suficiente para esta fase. Para maior segurança,
- * considerar migrar para httpOnly cookies no futuro.
+ * NOTA de segurança: o cookie NÃO é httpOnly porque o frontend precisa de o
+ * ler (ex.: para descodificar o payload e saber o role). A verificação real
+ * da assinatura é sempre feita pelo backend em cada pedido.
  */
 
-const STORAGE_KEY = "autocell_token";
+const COOKIE_KEY = "autocell_token";
+const COOKIE_DIAS = 7;
+
+export type Role = "admin" | "manager" | "staff";
 
 export interface JwtPayload {
   id: string;
-  role: "admin" | "staff";
+  role: Role;
   empresa_id: string;
   iat?: number;
   exp?: number;
 }
 
-/** Guarda o token no localStorage. */
+/** Define um cookie com nome, valor e dias de expiração. */
+function setCookie(nome: string, valor: string, dias: number): void {
+  if (typeof document === "undefined") return;
+  const expires = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toUTCString();
+  document.cookie = `${nome}=${encodeURIComponent(valor)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+/** Lê um cookie pelo nome (ou null se não existir). */
+function getCookie(nome: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie
+    .split("; ")
+    .find((c) => c.startsWith(`${nome}=`));
+  if (!match) return null;
+  return decodeURIComponent(match.slice(nome.length + 1));
+}
+
+/** Remove um cookie. */
+function deleteCookie(nome: string): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${nome}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+}
+
+/** Guarda o token num cookie (e em localStorage como backup). */
 export function guardarToken(token: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, token);
+  setCookie(COOKIE_KEY, token, COOKIE_DIAS);
+  // Backup em localStorage (para retrocompatibilidade e leitura fácil no client).
+  localStorage.setItem(COOKIE_KEY, token);
 }
 
-/** Lê o token do localStorage (ou null se não existir). */
+/** Lê o token do cookie (ou null se não existir). */
 export function lerToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(STORAGE_KEY);
+  return getCookie(COOKIE_KEY);
 }
 
-/** Remove o token (logout). */
+/** Remove o token (cookie + localStorage). */
 export function removerToken(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(STORAGE_KEY);
+  deleteCookie(COOKIE_KEY);
+  localStorage.removeItem(COOKIE_KEY);
 }
 
 /**
@@ -81,9 +115,12 @@ export function estaAutenticado(): boolean {
 
 /**
  * Determina para onde redirecionar o utilizador após login, com base no role.
- * - admin  -> /admin
- * - staff  -> /staff
+ * - admin   -> /admin   (dono da conta)
+ * - manager -> /manager  (responsável de limpezas)
+ * - staff   -> /staff    (executante de limpezas)
  */
-export function rotaPorRole(role: "admin" | "staff"): string {
-  return role === "admin" ? "/admin" : "/staff";
+export function rotaPorRole(role: Role): string {
+  if (role === "admin") return "/admin";
+  if (role === "manager") return "/manager";
+  return "/staff";
 }

@@ -89,7 +89,12 @@ Representa um alojamento sincronizado com o Smoobu.
 | `ativo`                 | Boolean  | Default `true`.                                              |
 
 ### `Utilizador`
-Admin ou Staff de uma empresa. Credenciais de login (email + password_hash).
+Admin, Manager ou Staff de uma empresa. Credenciais de login (email + password_hash).
+
+**Roles (hierarquia):**
+- `admin` — dono da conta (gestão total: empresas, planos, utilizadores).
+- `manager` — responsável de limpezas (gere equipa de staff, vê dashboard alargado, pode executar limpezas).
+- `staff` — executante de limpezas (vê apenas as suas tarefas no mobile).
 
 | Campo            | Tipo     | Notas                                                              |
 |------------------|----------|--------------------------------------------------------------------|
@@ -97,8 +102,8 @@ Admin ou Staff de uma empresa. Credenciais de login (email + password_hash).
 | `email`          | String   | Obrigatório, lowercase, trim, **único** (indexado). Credencial de login. |
 | `password_hash`  | String   | Hash bcrypt da password (nunca a password em claro). Opcional (utilizador migrado sem password → login recusa). |
 | `empresa_id`     | ObjectId | `ref: 'Empresa'`. Obrigatório, indexado.                           |
-| `role`           | String   | `enum: ['admin','staff']`, default `'staff'`.                      |
-| `ativo`          | Boolean  | Default `true`. Staff inativo é ignorado pelo webhook e pelo login. |
+| `role`           | String   | `enum: ['admin','manager','staff']`, default `'staff'`.           |
+| `ativo`          | Boolean  | Default `true`. Utilizador inativo é ignorado pelo webhook e pelo login. |
 
 ### `Ausencia`
 Indisponibilidade de um Staff num dia. O campo `data` é **normalizado para meia-noite UTC**.
@@ -136,7 +141,7 @@ Quando o Smoobu notifica uma **nova reserva** (`POST /webhooks/smoobu`), a API e
 
 1. **Receber o payload** — extrai o ID da propriedade (`apartmentId` / `propertyId` / …) e a `data_check_in` (`arrival` / `check_in` / …). Suporta várias nomenclaturas para tolerância a variações do Smoobu.
 2. **Encontrar a empresa** — procura a `Propriedade` por `smoobu_id` e obtém o respetivo `empresa_id`. Se não existir → erro (a tarefa não pode ser criada sem saber a empresa).
-3. **Procurar Staff** — lista todos os `Utilizador` com `role: 'staff'`, `ativo: true` dessa empresa.
+3. **Procurar Staff/Managers** — lista todos os `Utilizador` com `role: { $in: ['staff','manager'] }`, `ativo: true` dessa empresa. (O manager também pode executar limpezas, pelo que entra no load balancing.)
 4. **Filtro de Ausências** — exclui os Staff que tenham um registo em `Ausencia` para o dia do check-in (comparação por dia inteiro em UTC).
 5. **Cálculo de Carga (Load Balancing)** — para cada Staff disponível, soma `tempo_limpeza_minutos` de todas as `Tarefa` já atribuídas a esse Staff para o mesmo dia (excluindo `cancelada`/`concluida`). Staff sem tarefas conta como carga `0`.
 6. **Atribuição** — a nova Tarefa é atribuída ao Staff com **menor carga acumulada** (empate → primeiro encontrado).
@@ -254,7 +259,10 @@ Cria uma propriedade para a empresa.
 **Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
 
 - 1 **Empresa** «O Meu Alojamento Local» (procura por `nome`).
-- 1 **Utilizador Staff** «João Limpezas» (procura por `email` único). **Cria `password_hash` com bcrypt** para permitir login imediato.
+- 3 **Utilizadores** (procura por `email` único), cada um com `password_hash` bcrypt:
+  - `admin@autocell.pt` (admin — dono da conta)
+  - `manager@autocell.pt` (manager — responsável de limpezas)
+  - `joao.limpezas@autocell.pt` (staff — executante de limpezas)
 - 1 **Propriedade** «Casa Teste» (`smoobu_id: '99999'`).
 
 - **Resposta (200 OK):**
@@ -263,13 +271,17 @@ Cria uma propriedade para a empresa.
   "mensagem": "Cliente Zero criado com sucesso.",
   "empresa_id": "<ObjectId>",
   "empresa":  { "id": "...", "nome": "O Meu Alojamento Local", "plano_ativo": true, "criada": true },
-  "staff":    { "id": "...", "nome": "João Limpezas", "email": "joao.limpezas@autocell.pt", "role": "staff", "criado": true, "password_definida": true, "credenciais_teste": { "email": "joao.limpezas@autocell.pt", "password": "autocell123" } },
+  "utilizadores": [
+    { "id": "...", "nome": "Gestor Autocell", "email": "admin@autocell.pt", "role": "admin", "criado": true, "password_definida": true, "credenciais_teste": { "email": "admin@autocell.pt", "password": "autocell123" } },
+    { "id": "...", "nome": "Responsável Limpezas", "email": "manager@autocell.pt", "role": "manager", "criado": true, "password_definida": true, "credenciais_teste": { "email": "manager@autocell.pt", "password": "autocell123" } },
+    { "id": "...", "nome": "João Limpezas", "email": "joao.limpezas@autocell.pt", "role": "staff", "criado": true, "password_definida": true, "credenciais_teste": { "email": "joao.limpezas@autocell.pt", "password": "autocell123" } }
+  ],
   "propriedade": { "id": "...", "nome": "Casa Teste", "smoobu_id": "99999", "criada": true }
 }
 ```
 - Se já existir tudo, devolve `mensagem: "Cliente Zero já existia (nada foi alterado)."` com `criada/criado: false`.
-- **Retrocompatibilidade:** se o staff já existir mas não tiver `password_hash` (criado antes do auth), o setup define-lhe a password.
-- **Credenciais de teste:** `joao.limpezas@autocell.pt` / `autocell123` (remover em produção).
+- **Retrocompatibilidade:** se um utilizador já existir sem `password_hash` (criado antes do auth), o setup define-lhe a password e garante o role correto.
+- **Credenciais de teste (3 contas):** `admin@autocell.pt`, `manager@autocell.pt`, `joao.limpezas@autocell.pt` — todas com password `autocell123` (remover em produção).
 
 ### 6.2. Autenticação (`/api/auth`)
 
@@ -336,3 +348,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.2.0     | 1.2.0  | Painel de Administração: modelo `Empresa` (nome, nif, plano_ativo); `controllers/adminController.js` (`getPropriedades`, `criarPropriedade`, `setupClienteZero`); `routes/adminRoutes.js` (`GET/POST /api/admin/propriedades`, `GET /api/admin/setup`); montagem em `server.js`. `empresa_id` via header `x-empresa-id` (sem JWT ainda). |
 | v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@autocell.pt` / `autocell123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
 | v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
+| v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@autocell.pt` + manager `manager@autocell.pt` + staff `joao.limpezas@autocell.pt`, todos com password `autocell123`). |
