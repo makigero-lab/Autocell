@@ -52,10 +52,10 @@ export default function HomePage() {
         {/* Separador discreto */}
         <div className="mt-6 h-px w-16 bg-border" />
 
-        {/* Único botão de ação */}
+        {/* Único botão de ação — grande e elegante */}
         <div className="mt-8">
           <Link href="/login" prefetch>
-            <Button size="lg" className="group">
+            <Button className="group h-12 px-10 text-base tracking-wide">
               Entrar na Plataforma
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Button>

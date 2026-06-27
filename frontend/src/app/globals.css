@@ -3,73 +3,81 @@
 @tailwind utilities;
 
 /**
- * Tema Autocell — Rebranding Premium
- * ----------------------------------
- * Inspirado em sites corporativos de Property Management de alto nível.
+ * Tema Autocell — Rebranding Premium Dourado
+ * -------------------------------------------
+ * Inspirado em sites corporativos de Property Management de luxo (ex.: All2Gether).
  *
  * Paleta:
- *   - Backgrounds: branco neve (#fff) e cinza muito claro (zinc-50).
- *   - Primary: Azul Marinho Premium (blue-950) — sóbrio, forte, profissional.
- *   - Borders/sombras: muito discretos (hairline), ar "sharp" (radius 0.3rem).
+ *   - Background: branco puro (#fff).
+ *   - Foreground: azul/cinza muito escuro (texto principal).
+ *   - Primary: tom Dourado/Areia elegante (43 74% 49%) — luxo, sofisticado.
+ *   - Muted/Secondary: cinza super suave (210 40% 96%) para fundos secundários.
+ *   - Border/Input: hairline discreto (214.3 31.8% 91.4%).
+ *   - Radius: 0.25rem — bordas "afiadas" e corporativas.
+ *   - Sombras: shadow-sm (flat), sem elevação pesada.
  */
 
 @layer base {
   :root {
     /* Fundos */
-    --background: 0 0% 100%;          /* branco neve */
-    --foreground: 222 47% 11%;        /* blue-950 — texto principal */
+    --background: 0 0% 100%;              /* branco puro */
+    --foreground: 222 47% 11%;            /* azul/cinza muito escuro — texto */
 
-    --card: 0 0% 100%;                /* branco neve */
+    --card: 0 0% 100%;                    /* branco puro */
     --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Primary — Azul Marinho Premium (blue-950) */
-    --primary: 222 47% 11%;
-    --primary-foreground: 0 0% 98%;
+    /* Primary — Dourado/Areia elegante */
+    --primary: 43 74% 49%;
+    --primary-foreground: 0 0% 100%;      /* texto branco sobre dourado */
 
-    /* Secondary / muted / accent — cinzas neutros (zinc) */
-    --secondary: 240 5% 96%;          /* zinc-100 */
-    --secondary-foreground: 240 6% 10%;
-    --muted: 240 5% 96%;              /* zinc-100 — secções secundárias */
-    --muted-foreground: 240 4% 46%;   /* zinc-500 */
-    --accent: 240 5% 96%;
-    --accent-foreground: 240 6% 10%;
+    /* Secondary / muted / accent — cinza super suave */
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;                 /* fundos secundários */
+    --muted-foreground: 215 16% 47%;      /* texto secundário */
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
 
     /* Destructive (vermelho) */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
-    /* Borders muito discretos (hairline) */
-    --border: 240 6% 90%;             /* zinc-200 */
-    --input: 240 6% 90%;
-    --ring: 222 47% 11%;              /* igual ao primary */
+    /* Borders hairline */
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 43 74% 49%;                   /* igual ao primary (dourado) */
 
-    /* Radius reduzido para visual "sharp" / sério */
-    --radius: 0.3rem;
+    /* Radius "afiado" / corporativo */
+    --radius: 0.25rem;
   }
 
   .dark {
-    --background: 222 47% 11%;        /* blue-950 */
+    /* Dark mode luxuoso: azul/cinza escuro + acentos dourados */
+    --background: 222 47% 11%;            /* azul/cinza muito escuro */
     --foreground: 0 0% 98%;
-    --card: 222 40% 14%;              /* um toque acima do background */
+    --card: 222 40% 14%;                  /* um toque acima do background */
     --card-foreground: 0 0% 98%;
     --popover: 222 40% 14%;
     --popover-foreground: 0 0% 98%;
-    --primary: 217 91% 60%;           /* blue-500 — primary mais visível no dark */
-    --primary-foreground: 222 47% 11%;
-    --secondary: 240 4% 16%;
+
+    /* Primary ligeiramente mais brilhante no dark para visibilidade */
+    --primary: 43 74% 55%;
+    --primary-foreground: 222 47% 11%;    /* texto escuro sobre dourado */
+
+    --secondary: 215 28% 17%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 240 4% 16%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 215 28% 17%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62% 30%;
+    --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 18%;
-    --input: 240 4% 18%;
-    --ring: 217 91% 60%;
+    --border: 215 28% 20%;
+    --input: 215 28% 20%;
+    --ring: 43 74% 55%;
   }
 }
 
@@ -80,7 +88,6 @@
   body {
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
-    /* Suaviza transições de cor em todo o lado */
     font-feature-settings: "ss01", "cv01";
   }
 }
