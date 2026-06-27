@@ -173,10 +173,24 @@ exports.getEquipa = async (req, res) => {
 
     const utilizadores = await Utilizador.find({ empresa_id: empresaId })
       .select('-password_hash') // nunca expor a hash
+      .populate({ path: 'responsavel_id', select: 'nome email role' })
       .sort({ nome: 1 })
       .lean();
 
-    return res.status(200).json({ utilizadores });
+    // Transforma responsavel_id (objeto populated) num campo `responsavel` limpo
+    // e mantém responsavel_id como string (ou null) para o frontend.
+    const transformados = utilizadores.map((u) => {
+      const resp = u.responsavel_id;
+      return {
+        ...u,
+        responsavel_id: resp ? String(resp._id) : null,
+        responsavel: resp
+          ? { _id: String(resp._id), nome: resp.nome, email: resp.email, role: resp.role }
+          : null,
+      };
+    });
+
+    return res.status(200).json({ utilizadores: transformados });
   } catch (err) {
     console.error('❌ getEquipa:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
@@ -201,7 +215,7 @@ exports.criarMembroEquipa = async (req, res) => {
     const { ok, empresaId } = extrairEmpresaId(req, res);
     if (!ok) return;
 
-    const { nome, email, password, role } = req.body || {};
+    const { nome, email, password, role, responsavel_id } = req.body || {};
 
     // Validações de presença.
     if (!nome || !email || !password) {
@@ -225,6 +239,14 @@ exports.criarMembroEquipa = async (req, res) => {
       });
     }
 
+    // SEGURANÇA: Não é possível criar utilizadores com role 'admin'.
+    // O admin é criado apenas via /api/admin/setup (bootstrap) ou processo separado.
+    if (roleFinal === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível criar utilizadores com role "admin".',
+      });
+    }
+
     // Validação de unicidade do email (único global).
     const emailNormalizado = String(email).toLowerCase().trim();
     const existente = await Utilizador.findOne({ email: emailNormalizado });
@@ -232,6 +254,26 @@ exports.criarMembroEquipa = async (req, res) => {
       return res.status(409).json({
         erro: `Já existe um utilizador com o email "${emailNormalizado}".`,
       });
+    }
+
+    // SEGURANÇA: Valida responsavel_id se vier — tem de ser admin/manager
+    // da mesma empresa.
+    let responsavelValidado = null;
+    if (responsavel_id) {
+      if (!mongoose.isValidObjectId(responsavel_id)) {
+        return res.status(400).json({ erro: 'responsavel_id inválido.' });
+      }
+      const resp = await Utilizador.findOne({
+        _id: responsavel_id,
+        empresa_id: empresaId,
+        role: { $in: ['admin', 'manager'] },
+      });
+      if (!resp) {
+        return res.status(400).json({
+          erro: 'Responsável não encontrado (ou não é admin/manager da empresa).',
+        });
+      }
+      responsavelValidado = resp._id;
     }
 
     // Hash da password com bcrypt.
@@ -243,6 +285,7 @@ exports.criarMembroEquipa = async (req, res) => {
       password_hash,
       empresa_id: empresaId,
       role: roleFinal,
+      responsavel_id: responsavelValidado,
       ativo: true,
     });
 
@@ -293,10 +336,23 @@ exports.atualizarMembroEquipa = async (req, res) => {
       return res.status(400).json({ erro: 'ID de utilizador inválido.' });
     }
 
-    const { nome, email, role, password } = req.body || {};
-    if (nome === undefined && email === undefined && role === undefined && password === undefined) {
+    const { nome, email, role, password, responsavel_id } = req.body || {};
+    if (
+      nome === undefined &&
+      email === undefined &&
+      role === undefined &&
+      password === undefined &&
+      responsavel_id === undefined
+    ) {
       return res.status(400).json({
-        erro: 'Nada para atualizar. Envie nome, email, role e/ou password.',
+        erro: 'Nada para atualizar. Envie nome, email, role, password e/ou responsavel_id.',
+      });
+    }
+
+    // SEGURANÇA: Não é possível definir role 'admin' via edição.
+    if (role !== undefined && role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível atribuir o role "admin" via edição.',
       });
     }
 
@@ -305,6 +361,13 @@ exports.atualizarMembroEquipa = async (req, res) => {
     if (!utilizador) {
       return res.status(404).json({
         erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+
+    // SEGURANÇA: Não é possível modificar um administrador.
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível modificar um administrador.',
       });
     }
 
@@ -336,12 +399,40 @@ exports.atualizarMembroEquipa = async (req, res) => {
 
     // --- Role ---
     if (role !== undefined) {
-      if (!['admin', 'manager', 'staff'].includes(role)) {
+      if (!['manager', 'staff'].includes(role)) {
         return res.status(400).json({
-          erro: 'Role inválido. Valores permitidos: admin, manager, staff.',
+          erro: 'Role inválido. Valores permitidos via edição: manager, staff.',
         });
       }
       utilizador.role = role;
+    }
+
+    // --- Responsável (opcional: null = sem responsável) ---
+    if (responsavel_id !== undefined) {
+      if (responsavel_id === null || responsavel_id === '') {
+        utilizador.responsavel_id = null;
+      } else {
+        if (!mongoose.isValidObjectId(responsavel_id)) {
+          return res.status(400).json({ erro: 'responsavel_id inválido.' });
+        }
+        const resp = await Utilizador.findOne({
+          _id: responsavel_id,
+          empresa_id: empresaId,
+          role: { $in: ['admin', 'manager'] },
+        });
+        if (!resp) {
+          return res.status(400).json({
+            erro: 'Responsável não encontrado (ou não é admin/manager da empresa).',
+          });
+        }
+        // Não permitir atribuir o utilizador como responsável de si próprio.
+        if (String(resp._id) === String(utilizador._id)) {
+          return res.status(400).json({
+            erro: 'Um utilizador não pode ser responsável de si próprio.',
+          });
+        }
+        utilizador.responsavel_id = resp._id;
+      }
     }
 
     // --- Password (opcional: só se vier, faz hash nova) ---
@@ -402,6 +493,13 @@ exports.alternarEstadoMembro = async (req, res) => {
       });
     }
 
+    // SEGURANÇA: Não é possível desativar/ativar um administrador.
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível modificar o estado de um administrador.',
+      });
+    }
+
     // Se vier `ativo` no body, usa-o; senão alterna.
     const novoEstado =
       typeof req.body?.ativo === 'boolean' ? req.body.ativo : !utilizador.ativo;
@@ -450,6 +548,13 @@ exports.eliminarMembroEquipa = async (req, res) => {
     if (!utilizador) {
       return res.status(404).json({
         erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+
+    // SEGURANÇA: Não é possível eliminar um administrador.
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível eliminar um administrador.',
       });
     }
 

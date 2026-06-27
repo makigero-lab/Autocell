@@ -146,6 +146,13 @@ export interface UtilizadorDTO {
   email: string;
   empresa_id: string;
   role: Role;
+  responsavel_id: string | null;
+  responsavel?: {
+    _id: string;
+    nome: string;
+    email: string;
+    role: Role;
+  } | null;
   ativo: boolean;
   createdAt?: string;
   updatedAt?: string;
