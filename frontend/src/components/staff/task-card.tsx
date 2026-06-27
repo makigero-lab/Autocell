@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   Clock,
   Timer,
@@ -115,14 +116,18 @@ export function TaskCard({ tarefa }: { tarefa: TarefaMock }) {
           </p>
         )}
 
-        <Button
-          variant={porAtribuir ? "outline" : "default"}
-          className="w-full"
-          disabled={porAtribuir}
-        >
-          {porAtribuir ? "Aguarda atribuição" : "Iniciar tarefa"}
-          {!porAtribuir && <ChevronRight className="h-4 w-4" />}
-        </Button>
+        {porAtribuir ? (
+          <Button variant="outline" className="w-full" disabled>
+            Aguarda atribuição
+          </Button>
+        ) : (
+          <Link href={`/staff/tarefas/${tarefa.id}`} prefetch className="block">
+            <Button className="w-full">
+              Iniciar tarefa
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </Link>
+        )}
       </CardContent>
     </Card>
   );

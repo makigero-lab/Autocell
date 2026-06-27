@@ -45,14 +45,16 @@ frontend/
     │   │   ├── equipa/page.tsx         # Placeholder
     │   │   └── calendario/page.tsx     # Placeholder
     │   └── staff/
-    │       └── page.tsx      # Área do Staff (mobile-first)
+    │       ├── page.tsx      # Área do Staff (mobile-first)
+    │       └── tarefas/[id]/page.tsx  # Detalhe da Tarefa (checklist + concluir)
     ├── components/
-    │   ├── ui/               # shadcn: button, card, badge, avatar, separator
+    │   ├── ui/               # shadcn: button, card, badge, avatar, separator, checkbox, textarea
     │   ├── admin/
     │   │   ├── admin-sidebar.tsx    # Sidebar responsiva (desktop fixa / mobile overlay)
     │   │   └── placeholder-page.tsx # Componente de página "Em breve"
     │   └── staff/
-    │       └── task-card.tsx        # Cartão de tarefa de limpeza
+    │       ├── task-card.tsx             # Cartão de tarefa (link para detalhe)
+    │       └── detalhe-tarefa-client.tsx # Ecrã de detalhe (estado interativo)
     └── lib/
         ├── utils.ts          # cn() — clsx + tailwind-merge
         └── mock-data.ts      # Dados fictícios (espelham modelos do backend)
@@ -72,6 +74,7 @@ A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
 | `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first     |
 | `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first     |
 | `/staff`        | Área do Staff — tarefas de limpeza do dia          | Mobile-first      |
+| `/staff/tarefas/[id]` | Detalhe da Tarefa (checklist + concluir)      | Mobile-first      |
 
 ### 3.1 Área Admin (`/admin`)
 
@@ -96,8 +99,32 @@ A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
   - **Estimativa de tempo** (minutos → formato `XhYY`)
   - Endereço (opcional)
   - Estado (Atribuída / Por atribuir) com badge colorido
-  - Botão "Iniciar tarefa" (desativado se por atribuir)
+  - Botão "Iniciar tarefa" → abre o **Detalhe da Tarefa** (`/staff/tarefas/[id]`). Em tarefas "Por atribuir" o botão fica desativado.
 - **Rodapé** fixo com identidade "Autocell · Área do Staff".
+
+### 3.3 Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`)
+
+Ecrã mobile-first apresentado quando o Staff clica num cartão de tarefa atribuída.
+
+- **Cabeçalho fixo** com:
+  - Link "Voltar" para `/staff`
+  - Ícone do tipo de tarefa + **nome da propriedade no topo** + label do tipo
+  - Metadados rápidos: hora limite, estimativa e endereço
+- **Checklist interativa** (gerada a partir de um array `string[]`):
+  - Cada item tem uma **checkbox** controlada por React State (`itensMarcados[]`).
+  - Badge com contador `{concluídos}/{total}` e barra de progresso visual.
+  - Itens marcados ficam riscados e com fundo esverdeado.
+- **Campo de texto (textarea)** opcional "Observações ou Problemas" com contador de caracteres (máx. 500).
+- **Botão grande "Concluir Tarefa"** fixo no fundo do ecrã.
+
+#### Regra de Negócio Visual (implementada com React State)
+> O botão **"Concluir Tarefa" está `disabled`** até que **todas as checkboxes** da checklist estejam marcadas (`todasMarcadas = itensConcluidos === total && total > 0`).
+>
+> Enquanto não estão todas marcadas, o botão mostra o progresso `Concluir Tarefa (X/Y)` e uma legenda explicativa por baixo. Quando todas estão marcadas, o botão fica ativo (cor primária + ícone de confirmação) e, ao clicar, mostra "Tarefa concluída!" e volta para a lista de tarefas.
+
+#### Arquitetura
+- `app/staff/tarefas/[id]/page.tsx` — **Server Component**: valida o `id` contra o mock data (`getTarefaPorId`), resolve a checklist (a da tarefa ou a por defeito) e passa ao Client Component. Se o id não existir → `notFound()`.
+- `components/staff/detalhe-tarefa-client.tsx` — **Client Component** (`"use client"`): gere o estado (`itensMarcados`, `observacoes`, `concluida`) e aplica a regra de negócio visual.
 
 ---
 
@@ -121,7 +148,7 @@ Definidos em `src/lib/mock-data.ts`. A estrutura **espelha os modelos do backend
 | `MembroEquipaMock`   | `backend/models/Utilizador.js`    |
 | `TarefaMock`         | `backend/models/Tarefa.js`        |
 
-Inclui: `staffAtual` (utilizador staff simulado), `tarefasHoje` (4 tarefas), `equipa` (4 membros), `propriedades` (4 alojamentos) e `resumoDashboard` (estatísticas agregadas).
+Inclui: `staffAtual` (utilizador staff simulado), `tarefasHoje` (4 tarefas, cada uma com `checklist: string[]`), `equipa` (4 membros), `propriedades` (4 alojamentos), `resumoDashboard` (estatísticas agregadas), `checklistPorDefeito` (fallback) e o helper `getTarefaPorId(id)` (usado no ecrã de detalhe).
 
 > Quando a ligação à API for ativada, basta substituir as importações de `mock-data.ts` por chamadas `fetch` aos endpoints do backend (mesmos campos).
 
@@ -186,3 +213,4 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | Data    | Versão | Alteração                                                                       |
 |---------|--------|---------------------------------------------------------------------------------|
 | Inicial | 1.0.0  | Scaffold Next.js 14 + TS + Tailwind + shadcn; rotas `/admin` (sidebar + dashboard + placeholders) e `/staff` (mobile-first com cartões de tarefas); mock data. Build validado. |
+| v1.1.0  | 1.1.0  | Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`): checklist interativa gerada de array, textarea de observações, botão "Concluir Tarefa" desativado até todas as checkboxes marcadas (React State). Componentes UI Checkbox e Textarea. TaskCard agora abre o detalhe via Link. |

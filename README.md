@@ -106,6 +106,7 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 | `/admin/equipa` | Admin | Placeholder (Equipa) |
 | `/admin/calendario` | Admin | Placeholder (Calendário de Folgas) |
 | `/staff` | Staff (mobile-first) | Cabeçalho "Bem-vindo, [Nome]" + lista de cartões de tarefas de limpeza do dia |
+| `/staff/tarefas/[id]` | Staff (mobile-first) | Detalhe da Tarefa: checklist interativa + observações + botão "Concluir Tarefa" (desativado até todas as checkboxes marcadas) |
 
 > Nesta fase, o frontend usa **dados fictícios (mock data)** — sem ligação à API.
 

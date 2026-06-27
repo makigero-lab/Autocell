@@ -36,6 +36,12 @@ export interface TarefaMock {
   tipo: TipoTarefa;
   /** Endereço curto para contexto (opcional). */
   endereco?: string;
+  /**
+   * Checklist de limpeza (passos a concluir pelo Staff no ecrã de detalhe).
+   * Cada string é um item a marcar. Se vier vazio, é gerada uma checklist
+   * por defeito no ecrã de detalhe.
+   */
+  checklist?: string[];
 }
 
 export interface MembroEquipaMock {
@@ -79,6 +85,13 @@ export const tarefasHoje: TarefaMock[] = [
     estado: "atribuida",
     tipo: "limpeza",
     endereco: "Rua das Flores 12, Cascais",
+    checklist: [
+      "Trocar Lençóis",
+      "Limpar WC",
+      "Repor Café",
+      "Verificar toalhas",
+      "Lixar e varrer chão",
+    ],
   },
   {
     id: "t-002",
@@ -88,6 +101,12 @@ export const tarefasHoje: TarefaMock[] = [
     estado: "atribuida",
     tipo: "check_out",
     endereco: "Beco do Carrasco 3, Lisboa",
+    checklist: [
+      "Trocar Lençóis",
+      "Limpar WC",
+      "Repor Café",
+      "Recolher lixo",
+    ],
   },
   {
     id: "t-003",
@@ -97,6 +116,14 @@ export const tarefasHoje: TarefaMock[] = [
     estado: "atribuida",
     tipo: "limpeza",
     endereco: "Estrada da Pena 45, Sintra",
+    checklist: [
+      "Trocar Lençóis",
+      "Limpar WC",
+      "Repor Café",
+      "Limpar cozinha",
+      "Lavar janelas",
+      "Aspirar e limpar chão",
+    ],
   },
   {
     id: "t-004",
@@ -106,6 +133,11 @@ export const tarefasHoje: TarefaMock[] = [
     estado: "por_atribuir",
     tipo: "limpeza",
     endereco: "Cais do Sodré 8, Lisboa",
+    checklist: [
+      "Trocar Lençóis",
+      "Limpar WC",
+      "Repor Café",
+    ],
   },
 ];
 
@@ -195,3 +227,22 @@ export const resumoDashboard = {
   tarefasPorAtribuir: tarefasHoje.filter((t) => t.estado === "por_atribuir")
     .length,
 };
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Checklist por defeito usada quando uma tarefa não traz checklist própria. */
+export const checklistPorDefeito: string[] = [
+  "Trocar Lençóis",
+  "Limpar WC",
+  "Repor Café",
+];
+
+/**
+ * Procura uma tarefa por ID (no array de tarefas de hoje).
+ * Devolve `null` se não existir.
+ */
+export function getTarefaPorId(id: string): TarefaMock | null {
+  return tarefasHoje.find((t) => t.id === id) ?? null;
+}
