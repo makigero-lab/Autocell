@@ -139,7 +139,7 @@ Tarefa de limpeza gerada a partir de uma reserva do Smoobu.
 
 Quando o Smoobu notifica uma **nova reserva** (`POST /webhooks/smoobu`), a API executa o seguinte fluxo **estrito**:
 
-1. **Receber o payload** — extrai o ID da propriedade (`apartmentId` / `propertyId` / …) e a `data_check_in` (`arrival` / `check_in` / …). Suporta várias nomenclaturas para tolerância a variações do Smoobu.
+1. **Receber o payload** — extrai o ID da propriedade, a data de check-in e o ID da reserva do payload do Smoobu. **Mapeamento primário (estrutura oficial):** `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks com `??` para variantes (`content.*`, campos achatados).
 2. **Encontrar a empresa** — procura a `Propriedade` por `smoobu_id` e obtém o respetivo `empresa_id`. Se não existir → erro (a tarefa não pode ser criada sem saber a empresa).
 3. **Procurar Staff/Managers** — lista todos os `Utilizador` com `role: { $in: ['staff','manager'] }`, `ativo: true` dessa empresa. (O manager também pode executar limpezas, pelo que entra no load balancing.)
 4. **Filtro de Ausências** — exclui os Staff que tenham um registo em `Ausencia` para o dia do check-in (comparação por dia inteiro em UTC).
@@ -193,24 +193,26 @@ Rota de verificação de estado (healthcheck).
 Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, aplicando a lógica de atribuição descrita na secção 3.2.
 
 - **Resposta imediata (200 OK):** `{ "status": "recebido" }` — o processamento decorre em segundo plano.
-- **Payload esperado (campos lidos):**
+- **Payload esperado (estrutura OFICIAL do Smoobu — `data` + sub-objeto `apartment`):**
 
-  | Campo lido (qualquer destes) | Uso                                   |
-  |-------------------------------|---------------------------------------|
-  | `content.apartmentId` / `apartment_id` / `propertyId` / `propriedade_id` | Identifica a propriedade no Smoobu |
-  | `content.arrival` / `check_in` / `checkIn` / `data_check_in` / `startDate` | Data de check-in (dia da tarefa) |
-  | `content.id` / `reservationId` / `reservation_id` | ID da reserva (auditoria) |
-  | `content.tempo_limpeza_minutos` / `cleaning_minutes` | (Opcional) sobrepõe-se ao default da propriedade |
+  | Campo lido (prioritário) | Fallbacks | Uso |
+  |---|---|---|
+  | `payload.data.apartment.id` | `data.apartmentId` / `data.apartment_id` / `data.propertyId` / `data.property_id` / `content.apartmentId` / `content.property_id` / `content.propriedade_id` | Identifica a propriedade no Smoobu |
+  | `payload.data.arrival` | `data.check_in` / `data.checkIn` / `data.data_check_in` / `data.startDate` / `content.arrival` / `content.startDate` | Data de check-in (dia da tarefa) |
+  | `payload.data.id` | `data.reservationId` / `data.reservation_id` / `content.id` / `content.reservation_id` | ID da reserva (auditoria) |
+  | — | `content.tempo_limpeza_minutos` / `content.cleaning_minutes` | (Opcional) sobrepõe-se ao default da propriedade |
 
-- **Exemplo de payload Smoobu (formato canónico):**
+- **Exemplo de payload Smoobu (estrutura oficial documentada):**
 ```json
 {
-  "type": "newReservation",
-  "content": {
-    "id": 102345,
-    "apartmentId": 67890,
+  "action": "newReservation",
+  "data": {
+    "id": 292,
     "arrival": "2024-07-15",
-    "departure": "2024-07-20"
+    "apartment": {
+      "id": 38,
+      "name": "Apartment 1"
+    }
   }
 }
 ```
@@ -349,3 +351,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@autocell.pt` / `autocell123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
 | v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
 | v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@autocell.pt` + manager `manager@autocell.pt` + staff `joao.limpezas@autocell.pt`, todos com password `autocell123`). |
+| v1.4.1     | 1.4.1  | **Payload Smoobu oficial:** `extrairDadosReserva` atualizada para a estrutura documentada (`{ action, data: { id, arrival, apartment: { id, name } } }`). Mapeamento primário: `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks `??` mantidos para variantes (`content.*`, campos achatados). |
