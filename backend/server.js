@@ -12,7 +12,6 @@ const cors = require('cors');
 const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
-const { auth } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -41,9 +40,11 @@ app.use('/webhooks', webhookRoutes);
 // Autenticação (login público + /me protegido).
 app.use('/api/auth', authRoutes);
 
-// Painel de Administração (protegido por JWT; com fallback legacy x-empresa-id
-// durante a transição — ver middleware/auth.js).
-app.use('/api/admin', auth, adminRoutes);
+// Painel de Administração.
+// NOTA: a proteção por auth é aplicada dentro de adminRoutes.js, apenas às
+// rotas que precisam (propriedades). O /setup fica PÚBLICO porque é o
+// endpoint de bootstrap (cria o primeiro utilizador — ainda não há token).
+app.use('/api/admin', adminRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Ligação ao MongoDB e arranque do servidor                          */

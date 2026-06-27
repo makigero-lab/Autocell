@@ -213,7 +213,7 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 
 ### 6.1. Painel de Administração (`/api/admin`)
 
-> **Autenticação (v1.3.0):** todos os endpoints admin estão protegidos pelo middleware `auth` (`/api/admin`, montado em `server.js`).
+> **Autenticação (v1.3.0):** o middleware `auth` é aplicado **dentro de `adminRoutes.js`** apenas às rotas que precisam de proteção (`/propriedades`). A rota `/setup` é **PÚBLICA** de propósito (é o endpoint de bootstrap que cria o primeiro utilizador — ainda não há token para a chamar).
 > - **Prioridade JWT:** se houver header `Authorization: Bearer <token>`, o middleware valida o JWT e injeta `req.user = { id, role, empresa_id }`. O `empresa_id` é lido do token (não mais do header manual).
 > - **Fallback legacy (transição):** se NÃO houver token mas houver header `x-empresa-id`, o acesso é permitido em modo legacy (sem `req.user.id`). Isto evita partir o frontend enquanto migra para login. **Remover quando o frontend estiver 100% com JWT.**
 > - Sem token nem header → `401`.
@@ -221,7 +221,7 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 #### `GET /api/admin/propriedades`
 Devolve as propriedades da empresa (ordenadas por `nome`).
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy).
+- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
 - **Resposta (200 OK):**
 ```json
 {
@@ -250,7 +250,7 @@ Cria uma propriedade para a empresa.
 - **Resposta (201 Created):** `{ "propriedade": { ... } }`
 - **Erros:** `400` campos em falta / `tempo_limpeza_minutos` inválido; `401` não autenticado; `409` se `smoobu_id` já existir; `500` erro interno.
 
-#### `GET /api/admin/setup`
+#### `GET /api/admin/setup`  *(PÚBLICO — sem auth)*
 **Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
 
 - 1 **Empresa** «O Meu Alojamento Local» (procura por `nome`).
@@ -335,3 +335,4 @@ Devolve os dados do utilizador autenticado (a partir do token).
 | v1.1.0     | 1.1.0  | Lógica central: modelos `Propriedade`, `Utilizador`, `Ausencia`, `Tarefa`; `controllers/webhookController.js` (fluxo estrito de atribuição com filtro de ausências + load balancing); `routes/webhookRoutes.js` (`POST /webhooks/smoobu`); resposta 200 imediata + processamento assíncrono; tratamento de erros robusto. |
 | v1.2.0     | 1.2.0  | Painel de Administração: modelo `Empresa` (nome, nif, plano_ativo); `controllers/adminController.js` (`getPropriedades`, `criarPropriedade`, `setupClienteZero`); `routes/adminRoutes.js` (`GET/POST /api/admin/propriedades`, `GET /api/admin/setup`); montagem em `server.js`. `empresa_id` via header `x-empresa-id` (sem JWT ainda). |
 | v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@autocell.pt` / `autocell123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
+| v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
