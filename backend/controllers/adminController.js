@@ -156,6 +156,118 @@ exports.criarPropriedade = async (req, res) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Equipa (Utilizadores)                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/equipa
+ * Lista todos os utilizadores da empresa (qualquer role).
+ * O `empresa_id` vem do JWT (via extrairEmpresaId).
+ *
+ * Resposta 200: { utilizadores: [...] } (sem password_hash).
+ */
+exports.getEquipa = async (req, res) => {
+  try {
+    const { ok, empresaId } = extrairEmpresaId(req, res);
+    if (!ok) return;
+
+    const utilizadores = await Utilizador.find({ empresa_id: empresaId })
+      .select('-password_hash') // nunca expor a hash
+      .sort({ nome: 1 })
+      .lean();
+
+    return res.status(200).json({ utilizadores });
+  } catch (err) {
+    console.error('❌ getEquipa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * POST /api/admin/equipa
+ * Cria um novo membro de equipa (Utilizador) para a empresa.
+ *
+ * Body: { nome, email, password, role }
+ *   - nome      (obrigatório)
+ *   - email     (obrigatório, único global)
+ *   - password  (obrigatória, em claro — é guardada como hash bcrypt)
+ *   - role      (opcional, default 'staff'; enum ['admin','manager','staff'])
+ *
+ * Resposta 201: { utilizador: { ... } } (sem password_hash).
+ * Erros: 400 campos em falta / role inválido; 409 email duplicado; 500 erro.
+ */
+exports.criarMembroEquipa = async (req, res) => {
+  try {
+    const { ok, empresaId } = extrairEmpresaId(req, res);
+    if (!ok) return;
+
+    const { nome, email, password, role } = req.body || {};
+
+    // Validações de presença.
+    if (!nome || !email || !password) {
+      return res.status(400).json({
+        erro: 'Campos obrigatórios em falta: nome, email e password.',
+      });
+    }
+
+    // Validação da password (mínimo 6 caracteres).
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        erro: 'A password deve ter pelo menos 6 caracteres.',
+      });
+    }
+
+    // Validação do role (se vier, tem de ser um dos permitidos).
+    const roleFinal = role || 'staff';
+    if (!['admin', 'manager', 'staff'].includes(roleFinal)) {
+      return res.status(400).json({
+        erro: 'Role inválido. Valores permitidos: admin, manager, staff.',
+      });
+    }
+
+    // Validação de unicidade do email (único global).
+    const emailNormalizado = String(email).toLowerCase().trim();
+    const existente = await Utilizador.findOne({ email: emailNormalizado });
+    if (existente) {
+      return res.status(409).json({
+        erro: `Já existe um utilizador com o email "${emailNormalizado}".`,
+      });
+    }
+
+    // Hash da password com bcrypt.
+    const password_hash = await bcrypt.hash(String(password), 10);
+
+    const novo = await Utilizador.create({
+      nome: String(nome).trim(),
+      email: emailNormalizado,
+      password_hash,
+      empresa_id: empresaId,
+      role: roleFinal,
+      ativo: true,
+    });
+
+    // Resposta sem password_hash.
+    const utilizador = novo.toObject();
+    delete utilizador.password_hash;
+
+    return res.status(201).json({ utilizador });
+  } catch (err) {
+    console.error('❌ criarMembroEquipa:', err.message);
+
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ erro: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(409).json({
+        erro: 'Violação de unicidade.',
+        detalhe: err.keyValue,
+      });
+    }
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
 /* Setup do "Cliente Zero" (bootstrap do ambiente de testes)          */
 /* ------------------------------------------------------------------ */
 

@@ -87,7 +87,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 | `/login`        | **Login** (POST /api/auth/login; redirect por role / `?from=`) | Centrado, premium |
 | `/admin`        | Painel de Administração (Dashboard) — **protegido** (role admin) | Desktop-first |
 | `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first |
-| `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first |
+| `/admin/equipa`       | **Consome API real** (GET/POST equipa) | Desktop-first |
 | `/admin/calendario`   | Placeholder (Calendário de Folgas)           | Desktop-first |
 | `/manager`      | Painel do Responsável de Limpezas — **protegido** (role manager) | Desktop-first |
 | `/manager/tarefas`    | Placeholder (Tarefas)                        | Desktop-first |
@@ -102,8 +102,9 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (emerald).
 - **Dashboard** (`/admin`): cartões de estatística (Propriedades, Staff ativo, Tarefas hoje, Por atribuir), lista de tarefas do dia e estado da equipa com carga de trabalho.
-- **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 6).
-- Secções **Equipa** e **Calendário de Folgas**: páginas placeholder ("Em breve") — apenas layout visual.
+- **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 11).
+- **Equipa** (`/admin/equipa`): **ecrã real que consome a API** (`GET/POST /api/admin/equipa`, ver secção 11).
+- Secção **Calendário de Folgas**: página placeholder ("Em breve") — apenas layout visual.
 
 ### 3.2 Área Staff (`/staff`)
 
@@ -150,18 +151,25 @@ Ecrã mobile-first apresentado quando o Staff clica num cartão de tarefa atribu
 
 ## 4. Tema visual
 
-### Rebranding Premium (v1.3.0)
-Inspirado em sites corporativos de Property Management de alto nível (ex.: all2gether). Estética sóbria, "sharp", luxuosa.
+### Rebranding Premium Dourado (v1.7.0)
+Inspirado em sites corporativos de Property Management de luxo (ex.: All2Gether). Estética dourada/sobre-areia, "afiada" e sofisticada.
 
-- **Cor primária:** Azul Marinho Premium (`hsl(222 47% 11%)` ≈ Tailwind `blue-950`) — sóbrio, forte, profissional. (Anterior: emerald-600 — abandonado.)
-- **Fundos:**
-  - Light: branco neve (`#fff`) para fundos principais; `zinc-50` (`hsl(240 5% 96%)`) para secções secundárias (muted/secondary/accent).
-  - Dark: `blue-950` como fundo; `primary` ajustado para `blue-500` (mais visível).
-- **Border-radius global:** `0.3rem` (reduzido de `0.5rem`) — visual mais sério e "sharp" em botões e cartões.
-- **Borders/sombras:** muito discretos (hairline). `Card` usa `border-border/60` + `shadow-sm`; `Button` default usa `shadow-sm` com `hover:shadow-md` (elevação subtil no hover).
-- **Estilo shadcn:** *New York*, base color *zinc*, com CSS variables (suporte light/dark).
+- **Cor primária:** Dourado/Areia elegante (`hsl(43 74% 49%)`) — luxo, sofisticado. (Anterior: azul marinho `blue-950` — abandonado.)
+- **Paleta exata (light):**
+  - `--background`: `0 0% 100%` (branco puro)
+  - `--foreground`: `222 47% 11%` (azul/cinza muito escuro — texto)
+  - `--primary`: `43 74% 49%` (dourado/areia)
+  - `--primary-foreground`: `0 0% 100%` (branco sobre dourado)
+  - `--card` / `--popover`: `0 0% 100%` (branco puro)
+  - `--muted` / `--secondary` / `--accent`: `210 40% 96%` (cinza super suave)
+  - `--border` / `--input`: `214.3 31.8% 91.4%` (hairline)
+  - `--ring`: `43 74% 49%` (igual ao primary)
+- **Dark mode luxuoso:** fundo `222 47% 11%` (azul/cinza escuro), primary ligeiramente mais brilhante (`43 74% 55%`) com texto escuro sobre dourado — contraste de luxo.
+- **Border-radius global:** `0.25rem` — bordas "afiadas" e corporativas (ainda mais sharp que a versão anterior `0.3rem`).
+- **Sombras:** **flat** e sofisticado. `Card` usa `border-border/60` + `shadow-sm`; `Button` default usa apenas `shadow-sm` (sem `hover:shadow-md` — elevação removida para visual mais flat).
+- **Estilo shadcn:** *New York*, com CSS variables (suporte light/dark).
 - **Tipografia:** Inter (via `next/font/google`); pesos `font-light` (corpo) e `font-semibold` (títulos) para hierarquia premium.
-- **Landing page (`/`):** fundo limpo (sem gradiente), padrão de pontos subtil em radial-gradient, marca minimalista, cartões com `hover:-translate-y-0.5` (elevação) e ícones que mudam de cor no hover.
+- **Landing page (`/`):** fundo limpo (sem gradiente), padrão de pontos subtil em radial-gradient, marca minimalista (quadrado dourado com "A"), botão grande e elegante (`h-12 px-10 tracking-wide`).
 - **Responsividade:** mobile-first em toda a aplicação; breakpoints Tailwind (`sm`, `lg`, `xl`).
 - **Acessibilidade:** alvos táteis ≥ 44px, `aria-label` nos botões de menu, semântica HTML (`header`, `main`, `footer`, `nav`).
 
@@ -348,3 +356,5 @@ Nova área privada (role `manager`) com sidebar própria (Dashboard, Tarefas, Eq
 | v1.4.0  | 1.4.0  | **Autenticação JWT:** `lib/auth.ts` (guardar/ler/remover token + descodificar payload + `rotaPorRole`); `lib/api.ts` atualizado para enviar `Authorization: Bearer <token>` (com fallback legacy `x-empresa-id` e limpeza de token em `401`); nova rota `/login` (ecrã minimalista premium, `POST /api/auth/login`, redirect admin→`/admin` / staff→`/staff`). |
 | v1.5.0  | 1.5.0  | **Proteção de rotas + landing simplificada:** `middleware.ts` (Edge) protege `/admin/**` e `/staff/**` (sem token → `/login?from=`), redireciona autenticados de `/` e `/login`, e valida role por área; `lib/auth.ts` passou a guardar token em **cookie** (middleware lê) em vez de localStorage; `components/auth/route-guard.tsx` (2ª camada client-side) aplicado nos layouts admin/staff; landing page simplificada (removidos cartões Admin/Staff, 1 botão 'Entrar na Plataforma' → `/login`); `/login` lê `?from=` e redireciona autenticados via `useEffect`. |
 | v1.6.0  | 1.6.0  | **Novo role `manager` (Responsável de Limpezas):** tipo `Role = admin \| manager \| staff` em `lib/auth.ts`, `lib/api.ts`, `middleware.ts`, `route-guard.tsx`; `rotaPorRole` atualizada (manager → `/manager`); nova área `/manager` (layout + `manager-sidebar.tsx` + dashboard com tarefas + equipa + placeholders `/manager/tarefas` e `/manager/equipa`); `middleware.ts` protege `/manager/**`; `mock-data` atualizado com role manager + membro manager na equipa; dashboard admin inclui managers na equipa operacional. |
+| v1.7.0  | 1.7.0  | **Rebranding Premium Dourado:** primary mudada de azul marinho (`blue-950`) → Dourado/Areia (`hsl(43 74% 49%)`); `--radius` reduzido de `0.3rem` → `0.25rem` (ainda mais "afiado"); `--muted`/`--secondary`/`--accent` = `210 40% 96%` (cinza super suave); `--border`/`--input` = `214.3 31.8% 91.4%`; dark mode luxuoso (fundo escuro + dourado brilhante `43 74% 55%`); `Button` default: removido `hover:shadow-md` (visual flat); landing page: botão maior e elegante (`h-12 px-10 tracking-wide`). Inspirado em All2Gether. |
+| v1.8.0  | 1.8.0  | **Gestão de Equipa (`/admin/equipa`):** convertido em Client Component — `useEffect` chama `GET /api/admin/equipa` (JWT); tabela HTML (Nome, Email, Role com Badge, Estado); botão "Adicionar Funcionário" abre formulário inline (Nome, Email, Password, Role select); `POST /api/admin/equipa` cria utilizador (bcrypt no backend), limpa formulário e atualiza tabela. Tipo `UtilizadorDTO` + `Role` em `lib/api.ts`. |

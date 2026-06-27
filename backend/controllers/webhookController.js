@@ -48,35 +48,77 @@ function getDayRange(dateInput) {
 
 /**
  * Extrai o ID da propriedade e a data de check-in do payload do Smoobu.
- * Suporta várias nomenclaturas (content.apartmentId, propertyId, etc.) para
- * tolerância a variações do formato do Smoobu.
+ *
+ * Estrutura OFICIAL do webhook "newReservation" do Smoobu (documentada):
+ *   {
+ *     "action": "newReservation",
+ *     "data": {
+ *       "id": 292,
+ *       "arrival": "YYYY-MM-DD",
+ *       "apartment": { "id": 38, "name": "Apartment 1" }
+ *     }
+ *   }
+ *
+ * Mapeamento primário (respeita o objeto `data` e o sub-objeto `apartment`):
+ *   - smoobuPropId  ← payload.data.apartment.id
+ *   - dataCheckInRaw ← payload.data.arrival
+ *   - reservaId     ← payload.data.id
+ *
+ * Fallbacks (com ??) mantidos para precaver outras estruturas/variantes
+ * (ex.: payloads com `content` em vez de `data`, ou campos "achatados").
  *
  * @param {object} payload
  * @returns {{smoobuPropId: string, dataCheckInRaw: string, reservaId: string|null, content: object}}
  */
 function extrairDadosReserva(payload) {
+  // Objeto principal: o Smoobu usa `data`; alguns webhooks antigos usavam `content`.
+  const data = (payload && payload.data) || null;
   const content = (payload && payload.content) || payload || {};
 
+  // Sub-objeto apartment (estrutura oficial do Smoobu).
+  const apartment = (data && data.apartment) || content.apartment || null;
+
+  // 1) smoobuPropId — primário: data.apartment.id
   const smoobuPropId =
+    (apartment && apartment.id) ??
+    data?.apartmentId ??
+    data?.apartment_id ??
+    data?.propertyId ??
+    data?.property_id ??
     content.apartmentId ??
     content.apartment_id ??
     content.propertyId ??
     content.property_id ??
     content.propriedade_id;
 
+  // 2) dataCheckInRaw — primário: data.arrival
   const dataCheckInRaw =
+    data?.arrival ??
+    data?.check_in ??
+    data?.checkIn ??
+    data?.data_check_in ??
+    data?.startDate ??
     content.arrival ??
     content.check_in ??
     content.checkIn ??
     content.data_check_in ??
     content.startDate;
 
-  const reservaId = content.id ?? content.reservationId ?? content.reservation_id ?? null;
+  // 3) reservaId — primário: data.id
+  const reservaId =
+    data?.id ??
+    data?.reservationId ??
+    data?.reservation_id ??
+    content.id ??
+    content.reservationId ??
+    content.reservation_id ??
+    null;
 
   return {
     smoobuPropId: smoobuPropId != null ? String(smoobuPropId) : null,
     dataCheckInRaw: dataCheckInRaw != null ? String(dataCheckInRaw) : null,
     reservaId: reservaId != null ? String(reservaId) : null,
+    // Mantém-se `content` para retrocompatibilidade com quem consome esta função.
     content,
   };
 }
@@ -212,7 +254,8 @@ async function processarReservaSmoobu(payload) {
     utilizadorAtribuido = null;
   }
 
-  // Tempo de limpeza: payload > propriedade > default do modelo (60).
+  // Tempo de limpeza: payload.data > content (legacy) > propriedade > default (60).
+  // O Smoobu não envia este campo oficialmente, mas alguns clientes adicionam-no.
   const tempoLimpeza =
     content.tempo_limpeza_minutos ??
     content.cleaning_minutes ??
