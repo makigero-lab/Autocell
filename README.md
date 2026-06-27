@@ -69,9 +69,11 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 |--------|------|-----------|
 | `GET`  | `/`  | Healthcheck. Devolve `{ "status": "API do Alojamento Local online e ligada à BD!" }` |
 | `POST` | `/webhooks/smoobu` | Webhook do Smoobu (nova reserva). Cria a Tarefa de limpeza aplicando filtro de ausências + load balancing. Responde `200` imediato e processa de forma assíncrona. |
-| `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Header:** `x-empresa-id`. |
-| `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Header:** `x-empresa-id`; **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
-| `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste). Idempotente. Devolve o `empresa_id`. |
+| `POST` | `/api/auth/login` | **Login** (público). Body: `{ email, password }`. Devolve `{ token, utilizador }`. |
+| `GET`  | `/api/auth/me` | Dados do utilizador autenticado. **Header:** `Authorization: Bearer <token>`. |
+| `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Auth:** JWT (ou `x-empresa-id` legacy). |
+| `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Auth:** JWT (ou `x-empresa-id` legacy); **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
+| `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste, **com password de login**). Idempotente. Devolve o `empresa_id`. |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
 
@@ -103,7 +105,8 @@ Abrir http://localhost:3000 → landing page com links para `/admin` e `/staff`.
 
 | Rota | Área | Descrição |
 |------|------|-----------|
-| `/` | — | Landing page (escolha Admin / Staff) |
+| `/` | — | Landing page (escolha Admin / Staff / Login) |
+| `/login` | — | **Login** (POST /api/auth/login; redirect admin→`/admin`, staff→`/staff`) |
 | `/admin` | Admin (desktop-first) | Dashboard com sidebar (Dashboard, Propriedades, Equipa, Calendário de Folgas) |
 | `/admin/propriedades` | Admin | **Consome a API real** — tabela de propriedades (GET) + formulário de criação (POST) |
 | `/admin/equipa` | Admin | Placeholder (Equipa) |

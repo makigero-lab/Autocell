@@ -10,24 +10,43 @@
  */
 
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const Empresa = require('../models/Empresa');
 const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 
 /* ------------------------------------------------------------------ */
-/* Helper — extrair empresa_id do header x-empresa-id                  */
+/* Helper — extrair empresa_id (JWT优先, fallback legacy x-empresa-id) */
 /* ------------------------------------------------------------------ */
 
 /**
- * Lê e valida o `empresa_id` do header `x-empresa-id`.
- * Devolve { ok, empresaId, res } — se `ok` for false, `res` já tem a
- * resposta de erro enviada e o handler deve terminar imediatamente.
+ * Resolve o `empresa_id` do pedido.
+ *
+ * Prioridade:
+ *   1. `req.user.empresa_id` — injetado pelo middleware `auth` a partir do JWT
+ *      (modo principal, pós-login).
+ *   2. Header `x-empresa-id` — modo legacy (transição), para o frontend que
+ *      ainda não enviou JWT. Será removido quando o frontend estiver 100% com login.
+ *
+ * Devolve { ok, empresaId } — se `ok` for false, a resposta de erro já foi
+ * enviada e o handler deve terminar imediatamente.
  */
 function extrairEmpresaId(req, res) {
+  // 1) JWT (prioritário)
+  if (req.user && req.user.empresa_id) {
+    const empresaId = req.user.empresa_id;
+    if (!mongoose.isValidObjectId(empresaId)) {
+      res.status(400).json({ erro: 'empresa_id do token inválido.' });
+      return { ok: false };
+    }
+    return { ok: true, empresaId };
+  }
+
+  // 2) Fallback legacy: header x-empresa-id
   const raw = req.header('x-empresa-id');
   if (!raw) {
     res.status(400).json({
-      erro: 'Header x-empresa-id em falta.',
+      erro: 'empresa_id em falta (envie JWT ou header x-empresa-id).',
     });
     return { ok: false };
   }
@@ -157,6 +176,9 @@ exports.setupClienteZero = async (req, res) => {
   try {
     const NOME_EMPRESA = 'O Meu Alojamento Local';
     const NOME_STAFF = 'João Limpezas';
+    const EMAIL_STAFF = 'joao.limpezas@autocell.pt';
+    // Password de teste do Cliente Zero (em produção, o utilizador deve alterá-la).
+    const PASSWORD_STAFF = 'autocell123';
     const NOME_PROPRIEDADE = 'Casa Teste';
     const SMOOBU_ID_TESTE = '99999';
 
@@ -171,23 +193,31 @@ exports.setupClienteZero = async (req, res) => {
       empresaCriada = true;
     }
 
-    // 2) Utilizador Staff — não duplicar (procura por nome + empresa).
-    let staff = await Utilizador.findOne({
-      empresa_id: empresa._id,
-      nome: NOME_STAFF,
-    });
+    // 2) Utilizador Staff — não duplicar (procura por email único).
+    let staff = await Utilizador.findOne({ email: EMAIL_STAFF });
     let staffCriado = false;
+    let passwordDefinida = false;
     if (!staff) {
+      // Cria o staff já com a hash da password.
+      const password_hash = await bcrypt.hash(PASSWORD_STAFF, 10);
       staff = await Utilizador.create({
         nome: NOME_STAFF,
-        // Email derivado do nome para satisfazer o `required` do modelo,
-        // já que ainda não há gestão de utilizadores reais.
-        email: `joao.limpezas@${empresa._id}.local`,
+        email: EMAIL_STAFF,
+        password_hash,
         empresa_id: empresa._id,
         role: 'staff',
         ativo: true,
       });
       staffCriado = true;
+      passwordDefinida = true;
+    } else if (!staff.password_hash) {
+      // Retrocompatibilidade: staff criado antes do auth, sem password.
+      // Garante que pertence à empresa certa e define a password.
+      const password_hash = await bcrypt.hash(PASSWORD_STAFF, 10);
+      staff.empresa_id = staff.empresa_id || empresa._id;
+      staff.password_hash = password_hash;
+      await staff.save();
+      passwordDefinida = true;
     }
 
     // 3) Propriedade — não duplicar (procura por smoobu_id único).
@@ -217,8 +247,16 @@ exports.setupClienteZero = async (req, res) => {
       staff: {
         id: staff._id,
         nome: staff.nome,
+        email: staff.email,
         role: staff.role,
         criado: staffCriado,
+        password_definida: passwordDefinida,
+        // Credenciais de teste (apenas em ambiente de setup, para o utilizador
+        // poder testar o login). Em produção, remover este bloco.
+        credenciais_teste: {
+          email: EMAIL_STAFF,
+          password: PASSWORD_STAFF,
+        },
       },
       propriedade: {
         id: propriedade._id,

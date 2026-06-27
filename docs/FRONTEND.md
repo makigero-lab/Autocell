@@ -35,13 +35,15 @@ frontend/
 ├── .gitignore
 └── src/
     ├── app/
-    │   ├── globals.css       # Variáveis CSS do tema (light/dark) — primary emerald
+    │   ├── globals.css       # Variáveis CSS do tema premium (azul marinho) — light/dark
     │   ├── layout.tsx        # Layout root (fonte Inter, lang pt-PT)
-    │   ├── page.tsx          # Landing page com links para /admin e /staff
+    │   ├── page.tsx          # Landing page (premium) com links para /admin, /staff, /login
+    │   ├── login/
+    │   │   └── page.tsx      # Ecrã de Login (POST /api/auth/login, redirect por role)
     │   ├── admin/
     │   │   ├── layout.tsx    # Layout do painel admin (sidebar + main)
     │   │   ├── page.tsx      # Dashboard (estatísticas, tarefas, equipa)
-    │   │   ├── propriedades/page.tsx   # Placeholder
+    │   │   ├── propriedades/page.tsx   # Consome API real (GET/POST)
     │   │   ├── equipa/page.tsx         # Placeholder
     │   │   └── calendario/page.tsx     # Placeholder
     │   └── staff/
@@ -57,7 +59,8 @@ frontend/
     │       └── detalhe-tarefa-client.tsx # Ecrã de detalhe (estado interativo)
     └── lib/
         ├── utils.ts          # cn() — clsx + tailwind-merge
-        ├── api.ts             # Helpers de fetch à API real + EMPRESA_ID temporário
+        ├── api.ts             # Helpers de fetch (adminGet/adminPost) com Authorization Bearer
+        ├── auth.ts            # Gestão do token JWT (ler/guardar/remover + ler user do payload)
         └── mock-data.ts      # Dados fictícios (ainda usados em /staff e dashboard)
 ```
 
@@ -65,11 +68,12 @@ frontend/
 
 ## 3. Sistema de rotas
 
-A aplicação tem **duas áreas distintas**, cada uma com layout próprio:
+A aplicação tem **duas áreas distintas** (cada uma com layout próprio) mais uma página de login:
 
 | Rota            | Descrição                                          | Abordagem         |
 |-----------------|----------------------------------------------------|-------------------|
-| `/`             | Landing page — escolha entre Admin e Staff         | —                 |
+| `/`             | Landing page — escolha entre Admin, Staff e Login  | —                 |
+| `/login`        | **Login** (POST /api/auth/login, redirect por role) | Centrado, premium |
 | `/admin`        | Painel de Administração (Dashboard)                | Desktop-first     |
 | `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first     |
 | `/admin/equipa`       | Placeholder (Equipa)                         | Desktop-first     |
@@ -242,20 +246,30 @@ Isto força o framework para `nextjs`, pelo que o output directory passa a `.nex
 - **Branch de desenvolvimento:** `dev`.
 - **Documentação:** sempre que o frontend é alterado, este ficheiro e o `README.md` são atualizados.
 - **Linguagem:** interface e comentários em **pt-pt**.
-- **Integração com a API em curso:** a secção de **Propriedades** (`/admin/propriedades`) já consome a API real; as restantes secções (`/staff`, dashboard) ainda usam `mock-data.ts`.
+- **Integração com a API:** `/admin/propriedades` consome a API real com **JWT** (v1.3.0); `/login` faz autenticação; as restantes secções (`/staff`, dashboard) ainda usam `mock-data.ts`.
 
 ---
 
-## 11. Integração com a API backend
+## 11. Autenticação e Integração com a API backend
 
-### `src/lib/api.ts`
-Helpers centralizados para chamadas à API:
+### `src/lib/auth.ts` — Gestão do token JWT
+- `guardarToken(token)` / `lerToken()` / `removerToken()` — token guardado em `localStorage` (chave `autocell_token`).
+- `lerUtilizadorDoToken()` — descodifica o payload JWT (base64url) **sem verificar assinatura** (isso é responsabilidade do backend); devolve `{ id, role, empresa_id }` ou `null` se inválido/expirado.
+- `estaAutenticado()` — true se houver token válido.
+- `rotaPorRole(role)` — devolve `/admin` para admin, `/staff` para staff (usado no redirect pós-login).
 
+### `src/lib/api.ts` — Helpers de fetch
 - `API_URL` — lê `process.env.NEXT_PUBLIC_API_URL`.
-- `EMPRESA_ID` — **ID real do “Cliente Zero” já configurado** (`"6a400c9009e37b27fe0bc362"`, devolvido por `GET /api/admin/setup`). Enquanto não há login/JWT, todos os pedidos admin enviam o header `x-empresa-id` com este valor. (Futuro: substituir por middleware de auth JWT.)
-- `adminHeaders()` — headers comuns (`Content-Type` + `x-empresa-id`).
-- `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros (extrai `erro` do corpo JSON do backend).
-- `PropriedadeDTO` — tipo que espelha o modelo `Propriedade` do backend.
+- `adminHeaders()` — inclui `Authorization: Bearer <token>` **se houver token** no localStorage; senão, envia o header legacy `x-empresa-id` (fallback de transição).
+- `adminGet(path)` / `adminPost(path, body)` — wrappers de `fetch` com tratamento de erros. Em `401`, removem o token (força novo login).
+- `LoginResponse` — tipo da resposta de `POST /api/auth/login`.
+
+### `/login` (Client Component)
+Ecrã minimalista premium centrado:
+- Formulário com **Email** + **Password** + botão **Entrar** (design premium: azul marinho, padrão de pontos de fundo, marca "A").
+- Ao submeter: `POST /api/auth/login` (sem auth header — endpoint público).
+- Em caso de sucesso: `guardarToken(token)` + `router.push(rotaPorRole(role))` → **admin → `/admin`**, **staff → `/staff`**.
+- Estados: loading (spinner), erro (cartão vermelho com a mensagem do backend).
 
 ### `/admin/propriedades` (Client Component)
 Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
@@ -279,3 +293,4 @@ Primeiro ecrã a consumir a API real (mock-data abandonado nesta secção):
 | v1.2.0  | 1.2.0  | Integração com a API real na secção Propriedades: `lib/api.ts` (helpers `adminGet`/`adminPost` + `EMPRESA_ID` placeholder via header `x-empresa-id`); `/admin/propriedades` convertido em Client Component com `useEffect` (GET), tabela HTML (Nome, Smoobu ID, Tempo, Estado) e formulário inline de criação (POST + refresh automático). Componente UI `Input`. Mock-data abandonado nesta secção. |
 | v1.2.1  | 1.2.1  | `EMPRESA_ID` preenchido com o ID real do “Cliente Zero” (`6a400c9009e37b27fe0bc362`) devolvido por `GET /api/admin/setup`. Placeholder `COLA_AQUI_O_ID` removido. |
 | v1.3.0  | 1.3.0  | **Rebranding Premium:** primary mudada de emerald-600 → Azul Marinho Premium (`blue-950`); `--radius` reduzido de `0.5rem` → `0.3rem` (visual "sharp"); `Card` e `Button` com `shadow-sm` + borders hairline (`border-border/60`); landing page reescrita (gradiente verde removido, fundo limpo com padrão de pontos, tipografia `font-light`/`font-semibold`, cartões com elevação no hover `hover:-translate-y-0.5`). |
+| v1.4.0  | 1.4.0  | **Autenticação JWT:** `lib/auth.ts` (guardar/ler/remover token + descodificar payload + `rotaPorRole`); `lib/api.ts` atualizado para enviar `Authorization: Bearer <token>` (com fallback legacy `x-empresa-id` e limpeza de token em `401`); nova rota `/login` (ecrã minimalista premium, `POST /api/auth/login`, redirect admin→`/admin` / staff→`/staff`). |
