@@ -13,6 +13,7 @@ const bcrypt = require('bcryptjs');
 const Empresa = require('../models/Empresa');
 const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
+const Tarefa = require('../models/Tarefa');
 
 /* ------------------------------------------------------------------ */
 /* Helper — obter empresa_id do JWT (req.user)                        */
@@ -134,6 +135,70 @@ exports.criarPropriedade = async (req, res) => {
       });
     }
 
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Tarefas (Calendário Geral de Operações)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/tarefas
+ * Lista todas as Tarefas da empresa, com populate de propriedade e utilizador.
+ *
+ * Query params opcionais:
+ *   ?inicio=YYYY-MM-DD  — data de início do filtro (inclusive)
+ *   ?fim=YYYY-MM-DD     — data de fim do filtro (inclusive)
+ *
+ * Sem filtro de datas: devolve todas as tarefas (pode ser pesado — recomenda-se
+ * sempre passar inicio/fim no frontend).
+ *
+ * Resposta 200: { tarefas: [...] }
+ */
+exports.getTarefas = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const filtro = { empresa_id: empresaId, estado: { $ne: 'cancelada' } };
+
+    // Filtro por intervalo de datas (opcional).
+    const { inicio, fim } = req.query;
+    if (inicio || fim) {
+      const dataFiltro = {};
+      if (inicio) {
+        const d = new Date(inicio);
+        if (!isNaN(d.getTime())) {
+          dataFiltro.$gte = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+          );
+        }
+      }
+      if (fim) {
+        const d = new Date(fim);
+        if (!isNaN(d.getTime())) {
+          // Inclui o dia inteiro (até meia-noite do dia seguinte).
+          dataFiltro.$lt = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) +
+              24 * 60 * 60 * 1000
+          );
+        }
+      }
+      if (Object.keys(dataFiltro).length > 0) {
+        filtro.data = dataFiltro;
+      }
+    }
+
+    const tarefas = await Tarefa.find(filtro)
+      .populate({ path: 'propriedade_id', select: 'nome' })
+      .populate({ path: 'utilizador_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    return res.status(200).json({ tarefas });
+  } catch (err) {
+    console.error('❌ getTarefas:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };
