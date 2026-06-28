@@ -13,30 +13,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { API_URL, type LoginResponse } from "@/lib/api";
-import {
-  guardarToken,
-  lerUtilizadorDoToken,
-  rotaPorRole,
-} from "@/lib/auth";
+import { lerUtilizador, rotaPorRole } from "@/lib/auth";
+import type { LoginResponse } from "@/lib/api";
 
 /**
  * Página de Login — Autocell
  *
- * Ecrã minimalista centrado, com o design premium (azul marinho + sharp).
+ * Ecrã minimalista centrado, com o design premium (dourado + sharp).
  * Ao submeter:
- *   1. POST /api/auth/login com { email, password }.
- *   2. Em caso de sucesso, guarda o token num cookie (middleware lê) e
- *      redireciona:
- *        - para a rota original (?from=) se vier de uma rota protegida
- *        - senão: admin -> /admin, staff -> /staff
+ *   1. POST /api/auth/login (proxy same-origin que encaminha para o backend
+ *      e guarda o token num cookie httpOnly no servidor).
+ *   2. Em caso de sucesso, consulta /api/auth/me para confirmar o role e
+ *      redireciona para o painel correto (admin→/admin, manager→/manager,
+ *      staff→/staff) ou para ?from= se vier de uma rota protegida.
  *
- * Se o utilizador já tiver token válido, é redirecionado automaticamente
- * para o seu painel (o middleware.ts também trata disto no servidor).
- *
- * NOTA: o `useSearchParams` exige um <Suspense> boundary no Next.js 14
- * (build-time), por isso o conteúdo está no componente `LoginConteudo`
- * envolvido por <Suspense> no export default.
+ * Se o utilizador já tiver sessão, é redirecionado automaticamente.
  */
 export default function LoginPage() {
   return (
@@ -63,10 +54,17 @@ function LoginConteudo() {
 
   // Se já estiver autenticado, redireciona para o painel (ou para ?from=).
   useEffect(() => {
-    const user = lerUtilizadorDoToken();
-    if (user) {
-      router.replace(from || rotaPorRole(user.role));
-    }
+    let cancelado = false;
+    (async () => {
+      const user = await lerUtilizador();
+      if (cancelado) return;
+      if (user) {
+        router.replace(from || rotaPorRole(user.role));
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
   }, [router, from]);
 
   async function handleLogin(e: React.FormEvent) {
@@ -80,7 +78,8 @@ function LoginConteudo() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      // POST para o proxy same-origin (que define o cookie httpOnly).
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
@@ -100,9 +99,7 @@ function LoginConteudo() {
 
       const data = (await res.json()) as LoginResponse;
 
-      // Guarda o token num cookie (middleware lê) e redireciona.
-      guardarToken(data.token);
-      // Prioriza a rota original (?from=); senão usa o painel do role.
+      // O proxy já definiu o cookie httpOnly. Redireciona conforme o role.
       const destino = from || rotaPorRole(data.utilizador.role);
       router.push(destino);
     } catch (e) {

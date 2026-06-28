@@ -1,47 +1,30 @@
 /**
  * Configuração e helpers para chamadas à API backend (Autocell).
  *
- * Autenticação (v1.3.0 — JWT):
- *   Os pedidos admin enviam o header `Authorization: Bearer <token>` lido
- *   do cookie (ver `lib/auth.ts`).
+ * v1.14.0 — Arquitetura com cookie httpOnly + proxy:
+ *   As chamadas à API admin vão para SAME-ORIGIN (/api/admin/...), não
+ *   diretamente para o backend. O catch-all proxy em
+ *   app/api/admin/[...path]/route.ts lê o token do cookie httpOnly e
+ *   injeta o header Authorization ao encaminhar para o backend.
  *
- * v1.10.0: o fallback legacy `x-empresa-id` foi REMOVIDO. Se não houver
- * token, o backend devolve 401 (o utilizador tem de fazer login). O fluxo
- * de proteção de rotas (middleware.ts + RouteGuard) garante que o utilizador
- * só acede a páginas privadas com token válido.
+ *   Isto significa que o browser NUNCA tem acesso ao token JWT — ele
+ *   vive exclusivamente no cookie httpOnly, e apenas o servidor Next.js
+ *   o lê para adicionar o header.
  */
 
-import { lerToken } from "@/lib/auth";
-
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-/**
- * Headers comuns a todos os pedidos admin.
- * Inclui `Authorization: Bearer <token>` se houver token no cookie.
- * Se não houver token, NÃO envia fallback — o backend devolve 401.
- */
-export function adminHeaders(extra?: HeadersInit): HeadersInit {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  const token = lerToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  return { ...headers, ...(extra as Record<string, string>) };
-}
+/* ------------------------------------------------------------------ */
+/* Helpers de fetch admin (same-origin via proxy)                     */
+/* ------------------------------------------------------------------ */
 
 /**
- * Faz um GET a um endpoint admin.
- * Lança Error com a mensagem do backend se a resposta não for ok.
- * Se receber 401, limpa o token (força novo login).
+ * Faz um GET a um endpoint admin (via proxy same-origin).
+ * O token é injetado automaticamente pelo proxy no servidor.
  */
 export async function adminGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(path, {
     method: "GET",
-    headers: adminHeaders(),
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     cache: "no-store",
   });
   return handleResponse<T>(res);
@@ -51,36 +34,39 @@ export async function adminGet<T>(path: string): Promise<T> {
  * Faz um POST a um endpoint admin com JSON no corpo.
  */
 export async function adminPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(path, {
     method: "POST",
-    headers: adminHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    credentials: "include",
     cache: "no-store",
   });
   return handleResponse<T>(res);
 }
 
 /**
- * Faz um PUT a um endpoint admin com JSON no corpo (atualização completa/parcial).
+ * Faz um PUT a um endpoint admin com JSON no corpo.
  */
 export async function adminPut<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(path, {
     method: "PUT",
-    headers: adminHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    credentials: "include",
     cache: "no-store",
   });
   return handleResponse<T>(res);
 }
 
 /**
- * Faz um PATCH a um endpoint admin com JSON no corpo (atualização parcial).
+ * Faz um PATCH a um endpoint admin com JSON no corpo.
  */
 export async function adminPatch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(path, {
     method: "PATCH",
-    headers: adminHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: "include",
     cache: "no-store",
   });
   return handleResponse<T>(res);
@@ -90,9 +76,10 @@ export async function adminPatch<T>(path: string, body?: unknown): Promise<T> {
  * Faz um DELETE a um endpoint admin.
  */
 export async function adminDelete<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(path, {
     method: "DELETE",
-    headers: adminHeaders(),
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     cache: "no-store",
   });
   return handleResponse<T>(res);
@@ -100,11 +87,6 @@ export async function adminDelete<T>(path: string): Promise<T> {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    // 401 — token inválido/expirado: limpa para forçar novo login.
-    if (res.status === 401 && typeof window !== "undefined") {
-      const { removerToken } = await import("@/lib/auth");
-      removerToken();
-    }
     let mensagem = `${res.status} ${res.statusText}`;
     try {
       const data = await res.json();
@@ -121,6 +103,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
 /* Tipos que espelham os modelos do backend                            */
 /* ------------------------------------------------------------------ */
 
+export type Role = "admin" | "manager" | "staff";
+
 export interface PropriedadeDTO {
   _id: string;
   smoobu_id: string;
@@ -131,8 +115,6 @@ export interface PropriedadeDTO {
   createdAt?: string;
   updatedAt?: string;
 }
-
-export type Role = "admin" | "manager" | "staff";
 
 export interface UtilizadorDTO {
   _id: string;
@@ -172,14 +154,13 @@ export interface AusenciaDTO {
   updatedAt?: string;
 }
 
-/** Resposta do POST /api/auth/login */
+/** Resposta do POST /api/auth/login (via proxy — sem token, só utilizador) */
 export interface LoginResponse {
-  token: string;
   utilizador: {
     id: string;
     nome: string;
     email: string;
-    role: "admin" | "manager" | "staff";
+    role: Role;
     empresa_id: string;
   };
 }

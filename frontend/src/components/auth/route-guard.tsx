@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
-import { lerUtilizadorDoToken, type Role } from "@/lib/auth";
+import { lerUtilizador, type Role } from "@/lib/auth";
 
 interface RouteGuardProps {
   /** Role exigida para esta área ("admin" | "manager" | "staff"). */
@@ -17,9 +17,9 @@ interface RouteGuardProps {
  *
  * O `middleware.ts` já bloqueia o acesso no servidor (redireciona para /login
  * sem token). Este componente é uma **segunda camada** que:
- *   - valida novamente o token no client (caso o cookie exista mas esteja
- *     expirado/inválido e o middleware tenha deixado passar por race condition);
- *   - garante que o role do utilizador corresponde ao role da área;
+ *   - valida via fetch a /api/auth/me (proxy que lê o cookie httpOnly no
+ *     servidor e consulta o backend) se o utilizador está autenticado;
+ *   - garante que o role corresponde ao role da área;
  *   - mostra um spinner enquanto valida (evita flash de conteúdo protegido).
  *
  * Se algo falhar, redireciona para /login.
@@ -29,12 +29,19 @@ export function RouteGuard({ role, children }: RouteGuardProps) {
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
-    const user = lerUtilizadorDoToken();
-    if (!user || user.role !== role) {
-      router.replace("/login");
-      return;
-    }
-    setOk(true);
+    let cancelado = false;
+    (async () => {
+      const user = await lerUtilizador();
+      if (cancelado) return;
+      if (!user || user.role !== role) {
+        router.replace("/login");
+        return;
+      }
+      setOk(true);
+    })();
+    return () => {
+      cancelado = true;
+    };
   }, [role, router]);
 
   if (!ok) {
