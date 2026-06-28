@@ -18,6 +18,7 @@ const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const ausenciaRoutes = require('./routes/ausenciaRoutes');
+const { iniciarDailyBriefing } = require('./jobs/dailyBriefing');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -95,6 +96,10 @@ if (require.main === module) {
       app.listen(PORT, () => {
         console.log(`🚀 Servidor a correr na porta ${PORT}.`);
       });
+
+      // Inicia o cron job do Daily Briefing (WhatsApp) — só em execução
+      // direta, não nos testes. Corre todos os dias às 08:00.
+      iniciarDailyBriefing();
     })
     .catch((err) => {
       console.error('❌ Erro ao ligar ao MongoDB:', err.message);
