@@ -36,6 +36,7 @@ export default function PropriedadesPage() {
   const [form, setForm] = useState({
     nome: "",
     smoobu_id: "",
+    morada: "",
     tempo_limpeza_minutos: "60",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -66,8 +67,8 @@ export default function PropriedadesPage() {
     e.preventDefault();
     setFormErro(null);
 
-    if (!form.nome.trim() || !form.smoobu_id.trim()) {
-      setFormErro("Nome e Smoobu ID são obrigatórios.");
+    if (!form.nome.trim() || !form.smoobu_id.trim() || !form.morada.trim()) {
+      setFormErro("Nome, Smoobu ID e Morada são obrigatórios.");
       return;
     }
 
@@ -82,10 +83,11 @@ export default function PropriedadesPage() {
       await adminPost("/api/admin/propriedades", {
         nome: form.nome.trim(),
         smoobu_id: form.smoobu_id.trim(),
+        morada: form.morada.trim(),
         tempo_limpeza_minutos: tempo,
       });
       // Limpa o formulário e atualiza a tabela automaticamente.
-      setForm({ nome: "", smoobu_id: "", tempo_limpeza_minutos: "60" });
+      setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "60" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -134,7 +136,7 @@ export default function PropriedadesPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmeter} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-1.5">
                   <label htmlFor="nome" className="text-sm font-medium">
                     Nome
@@ -160,6 +162,20 @@ export default function PropriedadesPage() {
                       setForm((f) => ({ ...f, smoobu_id: e.target.value }))
                     }
                     placeholder="Ex.: 67890"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label htmlFor="morada" className="text-sm font-medium">
+                    Morada Completa
+                  </label>
+                  <Input
+                    id="morada"
+                    value={form.morada}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, morada: e.target.value }))
+                    }
+                    placeholder="Ex.: Rua das Flores 12, Lisboa"
                     required
                   />
                 </div>
@@ -210,7 +226,7 @@ export default function PropriedadesPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", smoobu_id: "", tempo_limpeza_minutos: "60" });
+                    setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "60" });
                   }}
                   disabled={submitting}
                 >
@@ -268,7 +284,14 @@ export default function PropriedadesPage() {
                 <tbody className="divide-y">
                   {propriedades.map((p) => (
                     <tr key={p._id} className="hover:bg-muted/30">
-                      <td className="px-4 py-3 font-medium">{p.nome}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{p.nome}</div>
+                        {p.morada && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {p.morada}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                         {p.smoobu_id}
                       </td>

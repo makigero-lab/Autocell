@@ -109,6 +109,8 @@ export interface PropriedadeDTO {
   _id: string;
   smoobu_id: string;
   nome: string;
+  morada?: string;
+  coordenadas?: { lat: number | null; lng: number | null };
   empresa_id: string;
   tempo_limpeza_minutos: number;
   ativo: boolean;

@@ -14,6 +14,7 @@ const Empresa = require('../models/Empresa');
 const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
+const { obterCoordenadas } = require('../utils/geocoding');
 
 /* ------------------------------------------------------------------ */
 /* Helper — obter empresa_id do JWT (req.user)                        */
@@ -81,12 +82,12 @@ exports.criarPropriedade = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const { smoobu_id, nome, tempo_limpeza_minutos } = req.body || {};
+    const { smoobu_id, nome, morada, tempo_limpeza_minutos } = req.body || {};
 
     // Validações de presença.
-    if (!smoobu_id || !nome) {
+    if (!smoobu_id || !nome || !morada) {
       return res.status(400).json({
-        erro: 'Campos obrigatórios em falta: smoobu_id e nome.',
+        erro: 'Campos obrigatórios em falta: smoobu_id, nome e morada.',
       });
     }
 
@@ -111,9 +112,24 @@ exports.criarPropriedade = async (req, res) => {
       tempo = n;
     }
 
+    // Geocoding: converte a morada em coordenadas (lat, lng).
+    // Se falhar, a propriedade é criada com coordenadas null (não bloqueia).
+    const moradaTrim = String(morada).trim();
+    let coordenadas = { lat: null, lng: null };
+    try {
+      const coords = await obterCoordenadas(moradaTrim);
+      if (coords) {
+        coordenadas = coords;
+      }
+    } catch (err) {
+      console.error('⚠️  Geocoding falhou (propriedade criada sem coordenadas):', err.message);
+    }
+
     const nova = await Propriedade.create({
       smoobu_id: String(smoobu_id),
       nome: String(nome).trim(),
+      morada: moradaTrim,
+      coordenadas,
       empresa_id: empresaId,
       tempo_limpeza_minutos: tempo,
     });

@@ -19,6 +19,18 @@ const propriedadeSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Morada completa da propriedade (para geocoding e otimização de rotas).
+    morada: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    // Coordenadas geográficas (preenchidas automaticamente via geocoding
+    // Nominatim/OpenStreetMap ao criar a propriedade).
+    coordenadas: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+    },
     empresa_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Empresa',
