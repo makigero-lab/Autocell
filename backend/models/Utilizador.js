@@ -32,6 +32,13 @@ const utilizadorSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    // Telemóvel para envio do Daily Briefing via WhatsApp.
+    // Formato internacional (ex.: +351912345678).
+    telefone: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     // Hash bcrypt da password. Nunca armazenar a password em claro.
     password_hash: {
       type: String,

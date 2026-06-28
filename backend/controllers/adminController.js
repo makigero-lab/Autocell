@@ -198,7 +198,7 @@ exports.criarMembroEquipa = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const { nome, email, password, role, responsavel_id, dias_folga } = req.body || {};
+    const { nome, email, password, role, responsavel_id, dias_folga, telefone } = req.body || {};
 
     // Validações de presença.
     if (!nome || !email || !password) {
@@ -279,6 +279,7 @@ exports.criarMembroEquipa = async (req, res) => {
       role: roleFinal,
       responsavel_id: responsavelValidado,
       dias_folga: diasFolgaFinal,
+      telefone: telefone ? String(telefone).trim() : '',
       ativo: true,
     });
 
@@ -329,17 +330,18 @@ exports.atualizarMembroEquipa = async (req, res) => {
       return res.status(400).json({ erro: 'ID de utilizador inválido.' });
     }
 
-    const { nome, email, role, password, responsavel_id, dias_folga } = req.body || {};
+    const { nome, email, role, password, responsavel_id, dias_folga, telefone } = req.body || {};
     if (
       nome === undefined &&
       email === undefined &&
       role === undefined &&
       password === undefined &&
       responsavel_id === undefined &&
-      dias_folga === undefined
+      dias_folga === undefined &&
+      telefone === undefined
     ) {
       return res.status(400).json({
-        erro: 'Nada para atualizar. Envie nome, email, role, password, responsavel_id e/ou dias_folga.',
+        erro: 'Nada para atualizar. Envie nome, email, role, password, responsavel_id, dias_folga e/ou telefone.',
       });
     }
 
@@ -435,6 +437,11 @@ exports.atualizarMembroEquipa = async (req, res) => {
         return res.status(400).json({ erro: 'dias_folga deve ser um array de inteiros (0-6).' });
       }
       utilizador.dias_folga = dias_folga.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+    }
+
+    // --- telefone (opcional) ---
+    if (telefone !== undefined) {
+      utilizador.telefone = String(telefone).trim();
     }
 
     // --- Password (opcional: só se vier, faz hash nova) ---

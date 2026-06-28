@@ -131,6 +131,7 @@ export interface UtilizadorDTO {
   } | null;
   ativo: boolean;
   dias_folga?: number[];
+  telefone?: string;
   createdAt?: string;
   updatedAt?: string;
 }

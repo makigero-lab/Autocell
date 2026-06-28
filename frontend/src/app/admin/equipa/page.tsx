@@ -10,6 +10,7 @@ import {
   Pencil,
   Trash2,
   Power,
+  Phone,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -136,6 +137,7 @@ export default function EquipaPage() {
     role: "staff" as Role,
     responsavel_id: "" as string,
     dias_folga: [] as number[],
+    telefone: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -149,6 +151,7 @@ export default function EquipaPage() {
     password: "", // vazia = não alterar
     responsavel_id: "" as string,
     dias_folga: [] as number[],
+    telefone: "",
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErro, setEditErro] = useState<string | null>(null);
@@ -206,8 +209,9 @@ export default function EquipaPage() {
         role: form.role,
         responsavel_id: form.responsavel_id || null,
         dias_folga: form.dias_folga,
+        telefone: form.telefone,
       });
-      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [] });
+      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [], telefone: "" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -227,6 +231,7 @@ export default function EquipaPage() {
       password: "",
       responsavel_id: u.responsavel_id ?? "",
       dias_folga: u.dias_folga ?? [],
+      telefone: u.telefone ?? "",
     });
     setEditErro(null);
   }
@@ -254,6 +259,7 @@ export default function EquipaPage() {
         role: editForm.role,
         responsavel_id: editForm.responsavel_id || null,
         dias_folga: editForm.dias_folga,
+        telefone: editForm.telefone,
       };
       if (editForm.password) body.password = editForm.password;
 
@@ -384,6 +390,20 @@ export default function EquipaPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <label htmlFor="telefone" className="text-sm font-medium">
+                    Telemóvel (WhatsApp)
+                  </label>
+                  <Input
+                    id="telefone"
+                    type="tel"
+                    value={form.telefone}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, telefone: e.target.value }))
+                    }
+                    placeholder="+351 912 345 678"
+                  />
+                </div>
+                <div className="space-y-1.5">
                   <label htmlFor="role" className="text-sm font-medium">
                     Role
                   </label>
@@ -454,7 +474,7 @@ export default function EquipaPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [] });
+                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [], telefone: "" });
                   }}
                   disabled={submitting}
                 >
@@ -505,6 +525,7 @@ export default function EquipaPage() {
                   <tr className="border-b bg-muted/40 text-left">
                     <th className="px-4 py-3 font-medium">Nome</th>
                     <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Telemóvel</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium">Responsável</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
@@ -517,6 +538,16 @@ export default function EquipaPage() {
                       <td className="px-4 py-3 font-medium">{u.nome}</td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {u.email}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {u.telefone ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5" />
+                            {u.telefone}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={ROLE_VARIANT[u.role]}>
@@ -626,6 +657,20 @@ export default function EquipaPage() {
                   setEditForm((f) => ({ ...f, email: e.target.value }))
                 }
                 required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-telefone" className="text-sm font-medium">
+                Telemóvel (WhatsApp)
+              </label>
+              <Input
+                id="edit-telefone"
+                type="tel"
+                value={editForm.telefone}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, telefone: e.target.value }))
+                }
+                placeholder="+351 912 345 678"
               />
             </div>
             <div className="space-y-1.5">
