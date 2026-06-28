@@ -168,3 +168,22 @@ O repositório inclui `frontend/vercel.json` com `"framework": "nextjs"` que for
 - Todo o desenvolvimento decorre na branch **`dev`**.
 - Sempre que o código é alterado, a documentação (este `README.md` e a pasta `docs/`) é atualizada em conformidade.
 - Histórico de evolução técnica disponível no worklog interno do projeto.
+
+---
+
+## Integração Contínua (CI)
+
+O repositório inclui um workflow de GitHub Actions em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) que corre em todos os `push` e `pull_request` nas branches `main` e `dev`:
+
+| Job | Passos | Diretoria |
+|-----|--------|-----------|
+| **Frontend** | `npm ci` → `npm run lint` → `npx tsc --noEmit` → `npm run build` | `frontend/` |
+| **Backend** | `npm ci` → `npm test` (Jest + Supertest) | `backend/` |
+
+Ambos os jobs correm em `ubuntu-latest` com Node.js 18. O estado da pipeline é visível no separador **Actions** do GitHub.
+
+### Testes do Backend
+- Framework: **Jest** + **Supertest**
+- Localização: `backend/tests/`
+- Para correr localmente: `cd backend && npm test`
+- O `server.js` exporta a instância `app` e isola o `app.listen` em `if (require.main === module)`, permitindo testar as rotas sem iniciar o servidor HTTP nem ligar ao MongoDB.

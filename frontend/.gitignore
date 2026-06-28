@@ -10,6 +10,9 @@
 /.next/
 /out/
 
+# TypeScript build info (gerado por tsc --noEmit em modo incremental)
+*.tsbuildinfo
+
 # Production
 /build
 

@@ -4,16 +4,13 @@
  * Lê o token do header `Authorization: Bearer <token>`, verifica-o e injeta
  * o payload em `req.user` ({ id, role, empresa_id }).
  *
- * Comportamento:
+ * Comportamento (ESTRITO — sem fallback legacy):
  *   - Se o token for válido → `req.user` fica preenchido e o pedido continua.
  *   - Se faltar o header / token malformado / token inválido ou expirado →
  *     responde 401 e o pedido pára.
  *
- * Fallback temporário (transição para JWT):
- *   Se NÃO houver token mas houver o header `x-empresa-id`, o middleware
- *   permite o acesso (modo legacy) com `req.user = { empresa_id }`. Isto
- *   evita partir o fluxo enquanto o frontend migra para o login. Remover
- *   assim que o frontend estiver 100% com JWT.
+ * v1.10.0: o fallback legacy `x-empresa-id` foi REMOVIDO. O frontend está
+ * 100% com JWT, pelo que qualquer pedido sem token válido é recusado.
  */
 
 const jwt = require('jsonwebtoken');
@@ -34,33 +31,26 @@ function extrairToken(req) {
 function auth(req, res, next) {
   const token = extrairToken(req);
 
-  if (token) {
-    try {
-      const payload = jwt.verify(token, JWT_SECRET);
-      req.user = {
-        id: payload.id,
-        role: payload.role,
-        empresa_id: payload.empresa_id,
-      };
-      return next();
-    } catch (err) {
-      return res.status(401).json({
-        erro: 'Token inválido ou expirado.',
-        detalhe: err.message,
-      });
-    }
+  if (!token) {
+    return res.status(401).json({
+      erro: 'Autenticação obrigatória. Envie Authorization: Bearer <token>.',
+    });
   }
 
-  // Fallback legacy: sem token, mas com x-empresa-id → modo transição.
-  const empresaIdLegacy = req.header('x-empresa-id');
-  if (empresaIdLegacy) {
-    req.user = { empresa_id: empresaIdLegacy, legacy: true };
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = {
+      id: payload.id,
+      role: payload.role,
+      empresa_id: payload.empresa_id,
+    };
     return next();
+  } catch (err) {
+    return res.status(401).json({
+      erro: 'Token inválido ou expirado.',
+      detalhe: err.message,
+    });
   }
-
-  return res.status(401).json({
-    erro: 'Autenticação obrigatória. Envie Authorization: Bearer <token>.',
-  });
 }
 
 module.exports = { auth, JWT_SECRET };
