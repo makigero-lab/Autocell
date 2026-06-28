@@ -30,7 +30,7 @@ backend/
 │   ├── adminController.js    # Painel de Administração + setup Cliente Zero
 │   └── authController.js     # Autenticação: login (JWT) + /me
 ├── middleware/
-│   └── auth.js               # Verifica JWT, injeta req.user (com fallback legacy)
+│   └── auth.js               # Verifica JWT (strito), injeta req.user — sem fallback legacy
 ├── models/                   # Modelos Mongoose (ODM do MongoDB)
 │   ├── Empresa.js            #   Entidade principal (multi-tenant)
 │   ├── Propriedade.js        #   Alojamento sincronizado com o Smoobu
@@ -246,15 +246,15 @@ Recebe o webhook do Smoobu (nova reserva) e cria a respetiva Tarefa de limpeza, 
 
 ### 6.1. Painel de Administração (`/api/admin`)
 
-> **Autenticação (v1.3.0):** o middleware `auth` é aplicado **dentro de `adminRoutes.js`** apenas às rotas que precisam de proteção (`/propriedades`). A rota `/setup` é **PÚBLICA** de propósito (é o endpoint de bootstrap que cria o primeiro utilizador — ainda não há token para a chamar).
-> - **Prioridade JWT:** se houver header `Authorization: Bearer <token>`, o middleware valida o JWT e injeta `req.user = { id, role, empresa_id }`. O `empresa_id` é lido do token (não mais do header manual).
-> - **Fallback legacy (transição):** se NÃO houver token mas houver header `x-empresa-id`, o acesso é permitido em modo legacy (sem `req.user.id`). Isto evita partir o frontend enquanto migra para login. **Remover quando o frontend estiver 100% com JWT.**
-> - Sem token nem header → `401`.
+> **Autenticação (v1.10.0 — ESTRITA):** o middleware `auth` é aplicado **dentro de `adminRoutes.js`** apenas às rotas que precisam de proteção (`/propriedades`, `/equipa`). A rota `/setup` é **PÚBLICA** de propósito (bootstrap).
+> - O middleware valida o JWT do header `Authorization: Bearer <token>` e injeta `req.user = { id, role, empresa_id }`. O `empresa_id` é lido do token.
+> - **Sem token (ou token inválido/expirado) → `401`** (strito, sem fallback).
+> - v1.10.0: o fallback legacy `x-empresa-id` foi **REMOVIDO**. O frontend está 100% com JWT, pelo que qualquer pedido sem token válido é recusado.
 
 #### `GET /api/admin/propriedades`
 Devolve as propriedades da empresa (ordenadas por `nome`).
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Resposta (200 OK):**
 ```json
 {
@@ -268,7 +268,7 @@ Devolve as propriedades da empresa (ordenadas por `nome`).
 #### `POST /api/admin/propriedades`
 Cria uma propriedade para a empresa.
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy).
+- **Auth:** JWT (strito, sem fallback legacy).
 - **Body:**
 ```json
 {
@@ -286,7 +286,7 @@ Cria uma propriedade para a empresa.
 #### `GET /api/admin/equipa`
 Lista todos os utilizadores da empresa (qualquer role), ordenados por `nome`.
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Resposta (200 OK):**
 ```json
 {
@@ -301,7 +301,7 @@ Lista todos os utilizadores da empresa (qualquer role), ordenados por `nome`.
 #### `POST /api/admin/equipa`
 Cria um novo membro de equipa (Utilizador) para a empresa.
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Body:**
 ```json
 {
@@ -321,7 +321,7 @@ Cria um novo membro de equipa (Utilizador) para a empresa.
 #### `PUT /api/admin/equipa/:id`
 Atualiza Nome, Email e/ou Role de um utilizador, e opcionalmente a password.
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Body (todos opcionais, mas pelo menos um):**
 ```json
 { "nome": "Maria Ferreira", "email": "maria@x.pt", "role": "manager", "password": "novapass123" }
@@ -337,7 +337,7 @@ Atualiza Nome, Email e/ou Role de um utilizador, e opcionalmente a password.
 #### `PATCH /api/admin/equipa/:id/estado`
 Alterna o estado `ativo` do utilizador (ativa ↔ desativa).
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Body (opcional):** `{ "ativo": true }` — se não vier, alterna o estado atual.
 - **Resposta (200 OK):** `{ "utilizador": { ... }, "ativo": boolean }`.
 - **Comportamento:** um utilizador desativado **não consegue fazer login** (ver `authController.login` → 401 "Utilizador inativo").
@@ -346,7 +346,7 @@ Alterna o estado `ativo` do utilizador (ativa ↔ desativa).
 #### `DELETE /api/admin/equipa/:id`
 Remove permanentemente o utilizador da base de dados.
 
-- **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). **Protegido.**
+- **Auth:** JWT (strito, sem fallback legacy). **Protegido.**
 - **Regras de segurança:**
   - O utilizador tem de pertencer à mesma empresa do JWT.
   - **Não é possível eliminar-se a si próprio** (`req.user.id === id` → 400) — evita o admin ficar sem acesso.
@@ -415,7 +415,7 @@ Devolve os dados do utilizador autenticado (a partir do token).
 
 ### 6.3. Ausências — Folgas e Férias (`/api/admin/ausencias`)
 
-> **Auth:** JWT (prioritário) ou `x-empresa-id` (legacy). Todas as rotas **protegidas** por `auth`.
+> **Auth:** JWT (strito, sem fallback legacy). Todas as rotas **protegidas** por `auth`.
 
 #### `GET /api/admin/ausencias`
 Lista as ausências da empresa, com o utilizador populado.
@@ -511,3 +511,4 @@ Elimina uma ausência.
 | v1.7.0     | 1.7.0  | **Segurança hierárquica + `responsavel_id`:** modelo `Utilizador` com campo `responsavel_id` (ObjectId ref Utilizador, superior hierárquico); `getEquipa` faz `populate('responsavel_id')` e devolve campo `responsavel` preenchido; regras 403 em criar/editar (bloqueia role `admin`), editar/eliminar/desativar (bloqueia se alvo é `admin`); `responsavel_id` validado (admin/manager da mesma empresa, não pode ser si próprio). |
 | v1.8.0     | 1.8.0  | **Sistema de Folgas e Férias:** modelo `Ausencia` expandido para intervalos (`data_inicio`/`data_fim`/`tipo`/`notas`, com `data` retrocompatível via `pre('save')`); `controllers/ausenciaController.js` (`listarAusencias` com `?futuras=true` + populate, `registarAusencia` com validação de sobreposição, `eliminarAusencia`); `routes/ausenciaRoutes.js` (`GET/POST/DELETE /api/admin/ausencias`); `webhookController` atualizado para excluir staff com ausência no intervalo (sobreposição `data_inicio <= dia AND data_fim >= dia` + query `data` legacy). |
 | v1.9.0     | 1.9.0  | **Testes + CI:** dependências dev `jest` + `supertest`; script `npm test`; `tests/server.test.js` (healthcheck GET / → 200 + mensagem, rota inexistente → 404); `server.js` refactorizado para exportar `app` (`module.exports = app`) e isolar `app.listen` + `mongoose.connect` em `if (require.main === module)` (permite testes sem BD/porta); workflow GitHub Actions `.github/workflows/ci.yml` (2 jobs paralelos: frontend lint+tsc+build, backend test). |
+| v1.10.0    | 1.10.0 | **Remoção do fallback legacy `x-empresa-id`:** `middleware/auth.js` agora é **ESTRITO** — só aceita JWT válido, sem token → 401 (sem fallback). `adminController` + `ausenciaController`: helper `extrairEmpresaId` (com fallback) substituído por `obterEmpresaId` (lê apenas `req.user.empresa_id` do JWT). Frontend `lib/api.ts`: removido `EMPRESA_ID` e fallback `x-empresa-id` do `adminHeaders` — se não houver token, não envia header (backend devolve 401). Proteção de rotas (middleware.ts + RouteGuard) já garante que só utilizadores autenticados chegam às páginas privadas. |

@@ -3,10 +3,9 @@
  *
  * Endpoints do Painel de Administração.
  *
- * NOTA: ainda NÃO há autenticação JWT. Enquanto o JWT não existir, o
- * `empresa_id` é extraído do header `x-empresa-id` do pedido. Esta é uma
- * solução temporária para conseguir testar a API; deve ser substituída por
- * um middleware de auth que faça parse do token e injete `req.empresaId`.
+ * Autenticação (v1.10.0): o `empresa_id` é lido do JWT (injetado pelo
+ * middleware `auth` em `req.user.empresa_id`). O fallback legacy
+ * `x-empresa-id` foi REMOVIDO — todos os pedidos têm de trazer token válido.
  */
 
 const mongoose = require('mongoose');
@@ -16,47 +15,31 @@ const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 
 /* ------------------------------------------------------------------ */
-/* Helper — extrair empresa_id (JWT优先, fallback legacy x-empresa-id) */
+/* Helper — obter empresa_id do JWT (req.user)                        */
 /* ------------------------------------------------------------------ */
 
 /**
- * Resolve o `empresa_id` do pedido.
+ * Lê o `empresa_id` do JWT (injetado pelo middleware `auth` em `req.user`).
  *
- * Prioridade:
- *   1. `req.user.empresa_id` — injetado pelo middleware `auth` a partir do JWT
- *      (modo principal, pós-login).
- *   2. Header `x-empresa-id` — modo legacy (transição), para o frontend que
- *      ainda não enviou JWT. Será removido quando o frontend estiver 100% com login.
+ * v1.10.0: o fallback legacy `x-empresa-id` foi REMOVIDO. O middleware
+ * `auth` já garante que `req.user` existe (caso contrário devolve 401 antes
+ * de chegar aqui). Esta função apenas valida que o `empresa_id` está presente
+ * e é um ObjectId válido.
  *
  * Devolve { ok, empresaId } — se `ok` for false, a resposta de erro já foi
  * enviada e o handler deve terminar imediatamente.
  */
-function extrairEmpresaId(req, res) {
-  // 1) JWT (prioritário)
-  if (req.user && req.user.empresa_id) {
-    const empresaId = req.user.empresa_id;
-    if (!mongoose.isValidObjectId(empresaId)) {
-      res.status(400).json({ erro: 'empresa_id do token inválido.' });
-      return { ok: false };
-    }
-    return { ok: true, empresaId };
-  }
-
-  // 2) Fallback legacy: header x-empresa-id
-  const raw = req.header('x-empresa-id');
-  if (!raw) {
-    res.status(400).json({
-      erro: 'empresa_id em falta (envie JWT ou header x-empresa-id).',
-    });
+function obterEmpresaId(req, res) {
+  const empresaId = req.user && req.user.empresa_id;
+  if (!empresaId) {
+    res.status(400).json({ erro: 'empresa_id em falta no token.' });
     return { ok: false };
   }
-  if (!mongoose.isValidObjectId(raw)) {
-    res.status(400).json({
-      erro: 'x-empresa-id inválido (não é um ObjectId válido).',
-    });
+  if (!mongoose.isValidObjectId(empresaId)) {
+    res.status(400).json({ erro: 'empresa_id do token inválido.' });
     return { ok: false };
   }
-  return { ok: true, empresaId: raw };
+  return { ok: true, empresaId };
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,7 +52,7 @@ function extrairEmpresaId(req, res) {
  */
 exports.getPropriedades = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const propriedades = await Propriedade.find({ empresa_id: empresaId }).sort(
@@ -94,7 +77,7 @@ exports.getPropriedades = async (req, res) => {
  */
 exports.criarPropriedade = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { smoobu_id, nome, tempo_limpeza_minutos } = req.body || {};
@@ -162,13 +145,13 @@ exports.criarPropriedade = async (req, res) => {
 /**
  * GET /api/admin/equipa
  * Lista todos os utilizadores da empresa (qualquer role).
- * O `empresa_id` vem do JWT (via extrairEmpresaId).
+ * O `empresa_id` vem do JWT (via obterEmpresaId, que lê `req.user.empresa_id`).
  *
  * Resposta 200: { utilizadores: [...] } (sem password_hash).
  */
 exports.getEquipa = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const utilizadores = await Utilizador.find({ empresa_id: empresaId })
@@ -212,7 +195,7 @@ exports.getEquipa = async (req, res) => {
  */
 exports.criarMembroEquipa = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { nome, email, password, role, responsavel_id } = req.body || {};
@@ -328,7 +311,7 @@ exports.criarMembroEquipa = async (req, res) => {
  */
 exports.atualizarMembroEquipa = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { id } = req.params;
@@ -478,7 +461,7 @@ exports.atualizarMembroEquipa = async (req, res) => {
  */
 exports.alternarEstadoMembro = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { id } = req.params;
@@ -529,7 +512,7 @@ exports.alternarEstadoMembro = async (req, res) => {
  */
 exports.eliminarMembroEquipa = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { id } = req.params;

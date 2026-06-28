@@ -23,9 +23,8 @@ import {
  *
  * Consome a API real (GET/POST /api/admin/propriedades) em vez do mock-data.
  *
- * NOTA: o `x-empresa-id` é enviado automaticamente pelo helper `adminGet`/
- * `adminPost` (ver `src/lib/api.ts`). É um ID estático placeholder enquanto
- * não há login — será substituído pelo ID real devolvido por /api/admin/setup.
+ * O JWT é enviado automaticamente pelo helper `adminGet`/`adminPost`
+ * (header `Authorization: Bearer <token>`, ver `src/lib/api.ts`).
  */
 export default function PropriedadesPage() {
   const [propriedades, setPropriedades] = useState<PropriedadeDTO[]>([]);

@@ -2,26 +2,23 @@
  * Configuração e helpers para chamadas à API backend (Autocell).
  *
  * Autenticação (v1.3.0 — JWT):
- *   Os pedidos admin enviam agora o header `Authorization: Bearer <token>`
- *   lido do localStorage (ver `lib/auth.ts`).
+ *   Os pedidos admin enviam o header `Authorization: Bearer <token>` lido
+ *   do cookie (ver `lib/auth.ts`).
  *
- *   Para a transição, mantém-se o header `x-empresa-id` como fallback
- *   (legacy) — se o utilizador ainda não tiver token (ex.: ainda não fez
- *   login), o backend aceita o x-empresa-id. Quando o frontend estiver
- *   100% com login, o fallback pode ser removido.
+ * v1.10.0: o fallback legacy `x-empresa-id` foi REMOVIDO. Se não houver
+ * token, o backend devolve 401 (o utilizador tem de fazer login). O fluxo
+ * de proteção de rotas (middleware.ts + RouteGuard) garante que o utilizador
+ * só acede a páginas privadas com token válido.
  */
 
 import { lerToken } from "@/lib/auth";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-// Legacy — usado apenas como fallback quando não há JWT (transição).
-// Será removido quando o frontend estiver 100% com login.
-export const EMPRESA_ID = "6a400c9009e37b27fe0bc362";
-
 /**
  * Headers comuns a todos os pedidos admin.
- * Inclui Authorization (JWT) se houver token; senão, inclui x-empresa-id.
+ * Inclui `Authorization: Bearer <token>` se houver token no cookie.
+ * Se não houver token, NÃO envia fallback — o backend devolve 401.
  */
 export function adminHeaders(extra?: HeadersInit): HeadersInit {
   const headers: Record<string, string> = {
@@ -31,9 +28,6 @@ export function adminHeaders(extra?: HeadersInit): HeadersInit {
   const token = lerToken();
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
-  } else {
-    // Fallback legacy (transição).
-    headers["x-empresa-id"] = EMPRESA_ID;
   }
 
   return { ...headers, ...(extra as Record<string, string>) };

@@ -8,7 +8,8 @@
  *   POST   /            — regista nova ausência (valida intervalo + pertença)
  *   DELETE /:id         — elimina ausência
  *
- * O `empresa_id` vem do JWT (via extrairEmpresaId partilhado com adminController).
+ * O `empresa_id` vem do JWT (via `req.user.empresa_id`, injetado pelo
+ * middleware `auth`). v1.10.0: fallback legacy `x-empresa-id` REMOVIDO.
  * Todas as operações validam que a ausência / utilizador pertence à mesma empresa.
  */
 
@@ -16,29 +17,21 @@ const mongoose = require('mongoose');
 const Ausencia = require('../models/Ausencia');
 const Utilizador = require('../models/Utilizador');
 
-// Reutiliza o helper de extrair empresa_id do JWT (partilhado com adminController).
-// Para evitar dependência circular, redefinimos aqui uma versão local idêntica.
-function extrairEmpresaId(req, res) {
-  if (req.user && req.user.empresa_id) {
-    const empresaId = req.user.empresa_id;
-    if (!mongoose.isValidObjectId(empresaId)) {
-      res.status(400).json({ erro: 'empresa_id do token inválido.' });
-      return { ok: false };
-    }
-    return { ok: true, empresaId };
-  }
-  const raw = req.header('x-empresa-id');
-  if (!raw) {
-    res
-      .status(400)
-      .json({ erro: 'empresa_id em falta (envie JWT ou header x-empresa-id).' });
+/**
+ * Lê o `empresa_id` do JWT (req.user.empresa_id).
+ * v1.10.0: sem fallback legacy — o middleware `auth` já garante req.user.
+ */
+function obterEmpresaId(req, res) {
+  const empresaId = req.user && req.user.empresa_id;
+  if (!empresaId) {
+    res.status(400).json({ erro: 'empresa_id em falta no token.' });
     return { ok: false };
   }
-  if (!mongoose.isValidObjectId(raw)) {
-    res.status(400).json({ erro: 'x-empresa-id inválido.' });
+  if (!mongoose.isValidObjectId(empresaId)) {
+    res.status(400).json({ erro: 'empresa_id do token inválido.' });
     return { ok: false };
   }
-  return { ok: true, empresaId: raw };
+  return { ok: true, empresaId };
 }
 
 /** Normaliza uma data para meia-noite UTC. */
@@ -59,7 +52,7 @@ function normalizarDia(dateInput) {
  */
 exports.listarAusencias = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const filtro = { empresa_id: empresaId };
@@ -109,7 +102,7 @@ exports.listarAusencias = async (req, res) => {
  */
 exports.registarAusencia = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { utilizador_id, data_inicio, data_fim, tipo, notas } = req.body || {};
@@ -220,7 +213,7 @@ exports.registarAusencia = async (req, res) => {
  */
 exports.eliminarAusencia = async (req, res) => {
   try {
-    const { ok, empresaId } = extrairEmpresaId(req, res);
+    const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
     const { id } = req.params;
