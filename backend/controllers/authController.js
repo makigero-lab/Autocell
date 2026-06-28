@@ -12,6 +12,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const Utilizador = require('../models/Utilizador');
+const Tarefa = require('../models/Tarefa');
+const Ausencia = require('../models/Ausencia');
 const { JWT_SECRET } = require('../middleware/auth');
 
 // Tempo de expiração do token (pode ser overridden por env).
@@ -129,6 +131,54 @@ exports.me = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ me:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * GET /api/auth/me/calendario (requer JWT)
+ *
+ * Devolve o calendário pessoal do utilizador autenticado:
+ *   - Tarefas atribuídas a ele (a partir de hoje), com populate da propriedade.
+ *   - Ausências dele (a partir de hoje).
+ *
+ * Resposta 200: { tarefas: [...], ausencias: [...] }
+ */
+exports.meuCalendario = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
+    }
+
+    const utilizadorId = req.user.id;
+
+    // Data de hoje em meia-noite UTC.
+    const agora = new Date();
+    const hoje = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+
+    // Tarefas do utilizador a partir de hoje (não canceladas).
+    const tarefas = await Tarefa.find({
+      utilizador_id: utilizadorId,
+      data: { $gte: hoje },
+      estado: { $ne: 'cancelada' },
+    })
+      .populate({ path: 'propriedade_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    // Ausências do utilizador a partir de hoje.
+    const ausencias = await Ausencia.find({
+      utilizador_id: utilizadorId,
+      data_fim: { $gte: hoje },
+    })
+      .sort({ data_inicio: 1 })
+      .lean();
+
+    return res.status(200).json({ tarefas, ausencias });
+  } catch (err) {
+    console.error('❌ meuCalendario:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };
