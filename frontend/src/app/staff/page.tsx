@@ -1,6 +1,7 @@
 "use client";
 
-import { Clock, ClipboardList, LogOut } from "lucide-react";
+import Link from "next/link";
+import { Clock, ClipboardList, LogOut, CalendarDays } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,14 @@ export default function StaffPage() {
 
       {/* Lista de tarefas */}
       <main className="flex-1 space-y-4 p-5">
+        {/* Botão Ver a minha Agenda */}
+        <Link href="/staff/calendario" prefetch>
+          <Button variant="outline" className="w-full justify-center gap-2">
+            <CalendarDays className="h-4 w-4" />
+            Ver a minha Agenda
+          </Button>
+        </Link>
+
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Tarefas de hoje
         </h2>
