@@ -12,6 +12,7 @@ import {
   Power,
   Phone,
   Siren,
+  CalendarOff,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,12 @@ export default function EquipaPage() {
   const [faltaSubita, setFaltaSubita] = useState<UtilizadorDTO | null>(null);
   const [faltaSubmitting, setFaltaSubmitting] = useState(false);
   const [faltaResultado, setFaltaResultado] = useState<string | null>(null);
+
+  // Modal de baixa prolongada
+  const [baixaModal, setBaixaModal] = useState<UtilizadorDTO | null>(null);
+  const [baixaForm, setBaixaForm] = useState({ data_inicio: "", data_fim: "" });
+  const [baixaSubmitting, setBaixaSubmitting] = useState(false);
+  const [baixaResultado, setBaixaResultado] = useState<string | null>(null);
 
   // Utilizadores que podem ser responsáveis (admin + manager).
   // Usado para popular o select de Responsável nos formulários.
@@ -646,6 +653,21 @@ export default function EquipaPage() {
                             >
                               <Siren className="h-4 w-4" />
                             </Button>
+                            {/* Baixa prolongada / férias */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-blue-500 hover:text-blue-600"
+                              onClick={() => {
+                                setBaixaModal(u);
+                                setBaixaForm({ data_inicio: "", data_fim: "" });
+                                setBaixaResultado(null);
+                              }}
+                              aria-label={`Registar baixa ou férias de ${u.nome}`}
+                              title="Registar Baixa / Férias"
+                            >
+                              <CalendarOff className="h-4 w-4" />
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -939,6 +961,130 @@ export default function EquipaPage() {
                 <>
                   <Siren className="h-4 w-4" />
                   Confirmar Falta
+                </>
+              )}
+            </Button>
+          )}
+        </DialogFooter>
+      </Dialog>
+
+      {/* Modal de Baixa Prolongada / Férias */}
+      <Dialog
+        open={baixaModal !== null}
+        onOpenChange={(o) => !o && setBaixaModal(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarOff className="h-5 w-5 text-blue-500" />
+              Registar Baixa ou Férias
+            </DialogTitle>
+            <DialogDescription>
+              As tarefas futuras serão redistribuídas pelos colegas disponíveis.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setBaixaModal(null)} />
+        </DialogHeader>
+        <DialogContent className="space-y-4">
+          {!baixaResultado ? (
+            <>
+              <p className="text-sm">
+                Registar baixa para{" "}
+                <span className="font-semibold">{baixaModal?.nome}</span>?
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="baixa-inicio" className="text-sm font-medium">
+                    Data de Início
+                  </label>
+                  <Input
+                    id="baixa-inicio"
+                    type="date"
+                    value={baixaForm.data_inicio}
+                    onChange={(e) =>
+                      setBaixaForm((f) => ({ ...f, data_inicio: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="baixa-fim" className="text-sm font-medium">
+                    Data de Fim
+                  </label>
+                  <Input
+                    id="baixa-fim"
+                    type="date"
+                    value={baixaForm.data_fim}
+                    onChange={(e) =>
+                      setBaixaForm((f) => ({ ...f, data_fim: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Todas as tarefas atribuídas a este funcionário no período serão
+                reatribuídas usando o sistema de load balancing. As que não
+                tiverem ninguém disponível ficarão por atribuir.
+              </p>
+            </>
+          ) : (
+            <div className="rounded-md bg-blue-50 dark:bg-blue-950/20 p-3 text-sm text-blue-800 dark:text-blue-200">
+              {baixaResultado}
+            </div>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setBaixaModal(null)}
+            disabled={baixaSubmitting}
+          >
+            {baixaResultado ? "Fechar" : "Cancelar"}
+          </Button>
+          {!baixaResultado && (
+            <Button
+              type="button"
+              className="bg-blue-500 text-white hover:bg-blue-600"
+              disabled={
+                !baixaForm.data_inicio ||
+                !baixaForm.data_fim ||
+                baixaSubmitting
+              }
+              onClick={async () => {
+                if (!baixaModal) return;
+                setBaixaSubmitting(true);
+                try {
+                  const res = await adminPost<{
+                    reatribuidas: number;
+                    orfas: number;
+                    total: number;
+                  }>(`/api/admin/equipa/${baixaModal._id}/baixa`, {
+                    data_inicio: baixaForm.data_inicio,
+                    data_fim: baixaForm.data_fim,
+                    tipo: "ferias",
+                  });
+                  setBaixaResultado(
+                    `Baixa registada. ${res.reatribuidas} tarefa(s) reatribuída(s) aos colegas, ${res.orfas} ficou(aram) por atribuir.`
+                  );
+                  await carregar();
+                } catch (e) {
+                  setBaixaResultado(
+                    e instanceof Error ? e.message : "Erro ao registar baixa."
+                  );
+                } finally {
+                  setBaixaSubmitting(false);
+                }
+              }}
+            >
+              {baixaSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A processar…
+                </>
+              ) : (
+                <>
+                  <CalendarOff className="h-4 w-4" />
+                  Confirmar Ausência
                 </>
               )}
             </Button>
