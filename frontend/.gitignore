@@ -10,6 +10,12 @@
 /.next/
 /out/
 
+# PWA — service worker gerado pelo next-pwa (artefactos de build)
+/public/sw.js
+/public/workbox-*.js
+/public/swe-worker-*.js
+/public/fallback-*.js
+
 # TypeScript build info (gerado por tsc --noEmit em modo incremental)
 *.tsbuildinfo
 
