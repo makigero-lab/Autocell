@@ -45,6 +45,9 @@ function obterEmpresaId(req, res) {
   return { ok: true, empresaId };
 }
 
+// Exporta para reutilização noutros controllers (ex: tarefaController).
+exports.obterEmpresaId = obterEmpresaId;
+
 /* ------------------------------------------------------------------ */
 /* Propriedades                                                         */
 /* ------------------------------------------------------------------ */

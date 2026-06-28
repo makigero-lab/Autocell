@@ -37,6 +37,7 @@ const {
   reportarFaltaSubita,
   setupClienteZero,
 } = require('../controllers/adminController');
+const { reportarAtrasoTarefa } = require('../controllers/tarefaController');
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
@@ -47,6 +48,9 @@ router.post('/propriedades', auth, criarPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
 router.get('/tarefas', auth, getTarefas);
+
+// Reportar atraso numa tarefa.
+router.post('/tarefas/:id/atraso', auth, reportarAtrasoTarefa);
 
 // Gestão de equipa (utilizadores) da empresa. PROTEGIDO por JWT.
 router.get('/equipa', auth, getEquipa);

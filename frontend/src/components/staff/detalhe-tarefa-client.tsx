@@ -16,6 +16,8 @@ import {
   ListChecks,
   StickyNote,
   Check,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -29,6 +31,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { adminPost } from "@/lib/api";
 import type { TarefaMock } from "@/lib/mock-data";
 
 const tipoIcon: Record<TarefaMock["tipo"], React.ComponentType<{ className?: string }>> = {
@@ -82,6 +94,12 @@ export function DetalheTarefaClient({
   const [observacoes, setObservacoes] = useState("");
   const [concluida, setConcluida] = useState(false);
 
+  // Modal de reportar atraso
+  const [mostrarAtraso, setMostrarAtraso] = useState(false);
+  const [minutosAtraso, setMinutosAtraso] = useState<number | null>(null);
+  const [atrasoSubmitting, setAtrasoSubmitting] = useState(false);
+  const [atrasoResultado, setAtrasoResultado] = useState<string | null>(null);
+
   // Número de itens concluídos e total — para o contador e a regra do botão.
   const totalItens = checklist.length;
   const itensConcluidos = useMemo(
@@ -105,6 +123,33 @@ export function DetalheTarefaClient({
     setConcluida(true);
     setTimeout(() => router.push("/staff"), 800);
   };
+
+  async function handleReportarAtraso() {
+    if (minutosAtraso === null) return;
+    setAtrasoSubmitting(true);
+    setAtrasoResultado(null);
+    try {
+      const res = await adminPost<{ carga_total: number; cascata_desatribuida: boolean }>(
+        `/api/admin/tarefas/${tarefa.id}/atraso`,
+        { minutos_atraso: minutosAtraso }
+      );
+      if (res.cascata_desatribuida) {
+        setAtrasoResultado(
+          `Atraso registado. Carga total: ${res.carga_total} min. Uma tarefa posterior foi desatribuída para não comprometer as limpezas.`
+        );
+      } else {
+        setAtrasoResultado(
+          `Atraso registado com sucesso. Carga total do dia: ${res.carga_total} min.`
+        );
+      }
+    } catch (e) {
+      setAtrasoResultado(
+        e instanceof Error ? e.message : "Erro ao reportar atraso."
+      );
+    } finally {
+      setAtrasoSubmitting(false);
+    }
+  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-muted/20">
@@ -240,7 +285,23 @@ export function DetalheTarefaClient({
       </main>
 
       {/* Botão Concluir Tarefa — fixo no fundo */}
-      <footer className="sticky bottom-0 border-t bg-background/95 p-4 backdrop-blur">
+      <footer className="sticky bottom-0 space-y-2 border-t bg-background/95 p-4 backdrop-blur">
+        {/* Botão Reportar Atraso */}
+        {!concluida && (
+          <Button
+            variant="outline"
+            className="w-full gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+            onClick={() => {
+              setMostrarAtraso(true);
+              setMinutosAtraso(null);
+              setAtrasoResultado(null);
+            }}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Reportar Atraso
+          </Button>
+        )}
+
         <Button
           size="lg"
           className="w-full"
@@ -267,6 +328,81 @@ export function DetalheTarefaClient({
           </p>
         )}
       </footer>
+
+      {/* Modal de Reportar Atraso */}
+      <Dialog
+        open={mostrarAtraso}
+        onOpenChange={(o) => !o && setMostrarAtraso(false)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Reportar Atraso
+            </DialogTitle>
+            <DialogDescription>
+              Quanto tempo extra precisas para concluir esta tarefa?
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setMostrarAtraso(false)} />
+        </DialogHeader>
+        <DialogContent className="space-y-4">
+          {!atrasoResultado ? (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {[15, 30, 60].map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setMinutosAtraso(min)}
+                    className={`rounded-md border px-4 py-3 text-sm font-medium transition-colors ${
+                      minutosAtraso === min
+                        ? "border-amber-500 bg-amber-500 text-white"
+                        : "border-input bg-background hover:bg-accent"
+                    }`}
+                  >
+                    +{min} min
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-800 dark:text-amber-200">
+              {atrasoResultado}
+            </div>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setMostrarAtraso(false)}
+            disabled={atrasoSubmitting}
+          >
+            {atrasoResultado ? "Fechar" : "Cancelar"}
+          </Button>
+          {!atrasoResultado && (
+            <Button
+              type="button"
+              className="bg-amber-500 text-white hover:bg-amber-600"
+              disabled={minutosAtraso === null || atrasoSubmitting}
+              onClick={handleReportarAtraso}
+            >
+              {atrasoSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A enviar…
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4" />
+                  Confirmar Atraso
+                </>
+              )}
+            </Button>
+          )}
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
