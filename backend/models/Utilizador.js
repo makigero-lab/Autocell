@@ -63,6 +63,14 @@ const utilizadorSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Soft delete: em vez de remover o utilizador da BD (o que deixaria
+    // Tarefas antigas com utilizador_id órfão), marca-se a data de eliminação.
+    // Utilizadores com eliminado_em !== null são excluídos das queries normais.
+    eliminado_em: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );

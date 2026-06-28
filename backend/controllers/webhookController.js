@@ -23,6 +23,7 @@ const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Ausencia = require('../models/Ausencia');
 const Tarefa = require('../models/Tarefa');
+const WebhookLog = require('../models/WebhookLog');
 
 /* ------------------------------------------------------------------ */
 /* Utilitários                                                         */
@@ -307,21 +308,57 @@ async function processarReservaSmoobu(payload) {
  * Responde 200 OK IMEDIATAMENTE ao Smoobu e processa a lógica de forma
  * assíncrona (fire-and-forget) para evitar timeouts no Smoobu.
  *
+ * v1.12.0 — WebhookLog (idempotência + auditoria):
+ *   Antes de devolver o 200, guarda o payload bruto num WebhookLog com
+ *   status 'recebido'. No bloco assíncrono (setImmediate), atualiza o log
+ *   para 'processado' se tudo correr bem, ou 'erro' com a mensagem se falhar.
+ *   Isto permite saber quantos webhooks foram recebidos vs processados vs
+ *   com erro, e reproccessar manualmente os que falharam.
+ *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  */
-exports.webhookSmoobu = (req, res) => {
-  // Resposta imediata — NÃO esperamos pelo processamento.
+exports.webhookSmoobu = async (req, res) => {
+  // 1) Guarda o payload bruto no WebhookLog com status 'recebido'.
+  //    Fazemos isto ANTES de devolver o 200 para garantir que o payload
+  //    nunca se perde, mesmo que o processamento assíncrono falhe.
+  let webhookLog = null;
+  try {
+    webhookLog = await WebhookLog.create({
+      payload: req.body,
+      status: 'recebido',
+    });
+  } catch (err) {
+    console.error('⚠️  Erro ao guardar WebhookLog (payload será perdido):', err.message);
+    // Não interrompemos o fluxo — o Smoobu precisa do 200.
+  }
+
+  // 2) Resposta imediata — NÃO esperamos pelo processamento.
   res.status(200).json({ status: 'recebido' });
 
-  // Processamento assíncrono com tratamento de erros robusto.
+  // 3) Processamento assíncrono com tratamento de erros robusto.
+  //    Atualiza o WebhookLog conforme o resultado.
   setImmediate(async () => {
     try {
       await processarReservaSmoobu(req.body);
+
+      // Sucesso → atualiza log para 'processado'.
+      if (webhookLog) {
+        await WebhookLog.findByIdAndUpdate(webhookLog._id, {
+          status: 'processado',
+          erro_msg: null,
+        });
+      }
     } catch (err) {
       console.error('❌ Erro no processamento do webhook Smoobu:', err.message);
-      // TODO (futuro): persistir o payload bruto numa coleção de WebhookLog
-      // e/ou integrar com sistema de retentas (ex.: fila BullMQ) para reprocessar.
+
+      // Erro → atualiza log para 'erro' com a mensagem.
+      if (webhookLog) {
+        await WebhookLog.findByIdAndUpdate(webhookLog._id, {
+          status: 'erro',
+          erro_msg: err.message,
+        });
+      }
     }
   });
 };

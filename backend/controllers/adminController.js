@@ -154,7 +154,7 @@ exports.getEquipa = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const utilizadores = await Utilizador.find({ empresa_id: empresaId })
+    const utilizadores = await Utilizador.find({ empresa_id: empresaId, eliminado_em: null })
       .select('-password_hash') // nunca expor a hash
       .populate({ path: 'responsavel_id', select: 'nome email role' })
       .sort({ nome: 1 })
@@ -542,7 +542,12 @@ exports.eliminarMembroEquipa = async (req, res) => {
     }
 
     const nomeEliminado = utilizador.nome;
-    await Utilizador.deleteOne({ _id: id });
+    // Soft delete: marca eliminado_em em vez de remover fisicamente.
+    // Isto protege as Tarefas antigas de ficarem com utilizador_id órfão
+    // (o histórico de tarefas continua a referenciar o utilizador).
+    utilizador.eliminado_em = new Date();
+    utilizador.ativo = false; // garante que não consegue fazer login
+    await utilizador.save();
 
     return res.status(200).json({
       mensagem: `Utilizador "${nomeEliminado}" eliminado com sucesso.`,
