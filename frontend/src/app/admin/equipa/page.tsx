@@ -11,6 +11,7 @@ import {
   Trash2,
   Power,
   Phone,
+  Siren,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -160,6 +161,11 @@ export default function EquipaPage() {
   const [eliminando, setEliminando] = useState<UtilizadorDTO | null>(null);
   const [elimSubmitting, setElimSubmitting] = useState(false);
 
+  // Modal de falta súbita
+  const [faltaSubita, setFaltaSubita] = useState<UtilizadorDTO | null>(null);
+  const [faltaSubmitting, setFaltaSubmitting] = useState(false);
+  const [faltaResultado, setFaltaResultado] = useState<string | null>(null);
+
   // Utilizadores que podem ser responsáveis (admin + manager).
   // Usado para popular o select de Responsável nos formulários.
   const responsaveisPossiveis = utilizadores.filter(
@@ -302,6 +308,29 @@ export default function EquipaPage() {
       setEditErro(e instanceof Error ? e.message : "Erro ao eliminar.");
     } finally {
       setElimSubmitting(false);
+    }
+  }
+
+  /** Reporta falta súbita (POST) e mostra resultado. */
+  async function handleFaltaSubita() {
+    if (!faltaSubita) return;
+    setFaltaSubmitting(true);
+    setFaltaResultado(null);
+    try {
+      const res = await adminPost<{ reatribuidas: number; orfas: number; total: number }>(
+        `/api/admin/equipa/${faltaSubita._id}/falta-subita`,
+        {}
+      );
+      setFaltaResultado(
+        `${res.reatribuidas} tarefa(s) reatribuída(s) aos colegas, ${res.orfas} tarefa(s) ficou(aram) por atribuir.`
+      );
+      await carregar();
+    } catch (e) {
+      setFaltaResultado(
+        e instanceof Error ? e.message : "Erro ao processar falta súbita."
+      );
+    } finally {
+      setFaltaSubmitting(false);
     }
   }
 
@@ -603,6 +632,20 @@ export default function EquipaPage() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            {/* Falta súbita */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-amber-500 hover:text-amber-600"
+                              onClick={() => {
+                                setFaltaSubita(u);
+                                setFaltaResultado(null);
+                              }}
+                              aria-label={`Reportar falta súbita de ${u.nome}`}
+                              title="Reportar Falta Hoje"
+                            >
+                              <Siren className="h-4 w-4" />
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -835,6 +878,71 @@ export default function EquipaPage() {
               </>
             )}
           </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Modal de Falta Súbita */}
+      <Dialog
+        open={faltaSubita !== null}
+        onOpenChange={(o) => !o && setFaltaSubita(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle className="flex items-center gap-2">
+              <Siren className="h-5 w-5 text-amber-500" />
+              Reportar Falta Súbita
+            </DialogTitle>
+            <DialogDescription>
+              As tarefas de hoje serão redistribuídas pelos colegas disponíveis.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setFaltaSubita(null)} />
+        </DialogHeader>
+        <DialogContent className="space-y-3">
+          <p className="text-sm">
+            Reportar falta hoje para{" "}
+            <span className="font-semibold">{faltaSubita?.nome}</span>?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            As tarefas de hoje deste funcionário serão redistribuídas pelos
+            colegas disponíveis, usando o sistema de load balancing com
+            tempo de viagem. Tarefas sem ninguém disponível ficarão por atribuir.
+          </p>
+          {faltaResultado && (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-800 dark:text-amber-200">
+              {faltaResultado}
+            </div>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setFaltaSubita(null)}
+            disabled={faltaSubmitting}
+          >
+            {faltaResultado ? "Fechar" : "Cancelar"}
+          </Button>
+          {!faltaResultado && (
+            <Button
+              type="button"
+              className="bg-amber-500 text-white hover:bg-amber-600"
+              onClick={handleFaltaSubita}
+              disabled={faltaSubmitting}
+            >
+              {faltaSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A processar…
+                </>
+              ) : (
+                <>
+                  <Siren className="h-4 w-4" />
+                  Confirmar Falta
+                </>
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </Dialog>
     </div>
