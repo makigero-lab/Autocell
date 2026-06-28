@@ -58,6 +58,26 @@ export async function estaAutenticado(): Promise<boolean> {
 }
 
 /**
+ * Termina a sessão do utilizador.
+ *
+ * Chama a rota de API /api/auth/logout (que limpa o cookie httpOnly no
+ * servidor) e depois redireciona o browser para /login.
+ *
+ * Usa `window.location.href` (em vez de router.push) para garantir que
+ * o estado do cliente é totalmente limpo (sem cache de dados do utilizador
+ * anterior).
+ */
+export async function fazerLogout(): Promise<void> {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Mesmo que o fetch falhe, tentamos redirecionar (o middleware vai
+    // bloquear o acesso às páginas privadas sem cookie).
+  }
+  window.location.href = "/login";
+}
+
+/**
  * Determina para onde redirecionar o utilizador após login, com base no role.
  * - admin   -> /admin   (dono da conta)
  * - manager -> /manager  (responsável de limpezas)

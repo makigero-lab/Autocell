@@ -1,8 +1,12 @@
-import { Clock, ClipboardList } from "lucide-react";
+"use client";
+
+import { Clock, ClipboardList, LogOut } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { TaskCard } from "@/components/staff/task-card";
 import { staffAtual, tarefasHoje } from "@/lib/mock-data";
+import { fazerLogout } from "@/lib/auth";
 
 /**
  * Área do Staff (/staff) — mobile-first.
@@ -44,6 +48,17 @@ export default function StaffPage() {
               </span>
             </div>
           </div>
+          {/* Botão logout */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => fazerLogout()}
+            aria-label="Terminar sessão"
+            title="Terminar sessão"
+          >
+            <LogOut className="h-5 w-5" />
+          </Button>
         </div>
 
         {/* Data + resumo */}
