@@ -129,18 +129,63 @@ function extrairDadosReserva(payload) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Calcula o tempo de viagem entre duas coordenadas usando a Fórmula de
+ * Haversine (distância em linha reta) e uma velocidade média urbana de
+ * 30 km/h.
+ *
+ * TODO (futuro): substituir por Google Maps Distance Matrix API para ter
+ * em conta o trânsito real e a rota rodoviária.
+ *
+ * @param {{ lat: number, lng: number } | null} coordA
+ * @param {{ lat: number, lng: number } | null} coordB
+ * @returns {number} tempo de viagem em minutos (0 se coordenadas inválidas)
+ */
+function calcularTempoViagem(coordA, coordB) {
+  if (!coordA || !coordB || coordA.lat == null || coordA.lng == null ||
+      coordB.lat == null || coordB.lng == null) {
+    return 0;
+  }
+
+  const R = 6371; // raio da Terra em km
+  const dLat = ((coordB.lat - coordA.lat) * Math.PI) / 180;
+  const dLng = ((coordB.lng - coordA.lng) * Math.PI) / 180;
+  const lat1 = (coordA.lat * Math.PI) / 180;
+  const lat2 = (coordB.lat * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanciaKm = R * c;
+
+  // Velocidade média urbana: 30 km/h → tempo em minutos.
+  const velocidadeKmh = 30;
+  const tempoHoras = distanciaKm / velocidadeKmh;
+  const tempoMinutos = Math.round(tempoHoras * 60);
+
+  return tempoMinutos;
+}
+
+/**
  * Determina o utilizador (Staff) a quem atribuir a tarefa, aplicando:
  *   - filtro de ausências (passo 4)
- *   - cálculo de carga / load balancing (passo 5)
- *   - escolha do utilizador com menor carga (passo 6)
+ *   - filtro de folgas fixas semanais (v1.13.0)
+ *   - cálculo de carga + tempo de viagem (passo 5, v1.14.0)
+ *   - escolha do utilizador com menor carga_total (passo 6)
+ *
+ * v1.14.0 — Carga total = tempo_limpeza acumulado + tempo_viagem
+ *   O tempo_viagem é calculado entre a última tarefa do dia do utilizador
+ *   e a nova propriedade (Haversine). Se o utilizador não tiver tarefas
+ *   nesse dia, tempo_viagem = 0.
  *
  * Devolve null se não houver ninguém disponível.
  *
  * @param {import('mongoose').Types.ObjectId} empresaId
  * @param {{start: Date, end: Date}} range
+ * @param {{ lat: number, lng: number } | null} coordenadasNovaPropriedade
  * @returns {Promise<mongoose.Types.ObjectId|null>}
  */
-async function determinarUtilizadorAtribuido(empresaId, range) {
+async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPropriedade) {
   // Passo 3 — Procurar todos os Staff e Managers ativos da empresa.
   // (O manager — responsável de limpezas — também pode executar limpezas,
   //  pelo que entra no load balancing como qualquer staff.)
@@ -186,17 +231,24 @@ async function determinarUtilizadorAtribuido(empresaId, range) {
 
   if (disponiveis.length === 0) return null;
 
-  // Passo 5 — Cálculo de Carga: soma de tempo_limpeza_minutos das tarefas
-  // já atribuídas a cada utilizador disponível para esse dia.
+  // Passo 5 — Cálculo de Carga + Tempo de Viagem (v1.14.0):
+  // carga_total = tempo_limpeza acumulado + tempo_viagem
+  //
+  // Para cada utilizador disponível:
+  //   1. Soma o tempo_limpeza_minutos das tarefas já atribuídas no dia.
+  //   2. Encontra a ÚLTIMA tarefa do dia (com populate de propriedade_id
+  //      para obter coordenadas).
+  //   3. Calcula tempo_viagem entre a última casa e a nova casa (Haversine).
+  //   4. carga_total = soma_limpeza + tempo_viagem.
   const disponiveisIds = disponiveis.map((s) => s._id);
 
-  const cargas = await Tarefa.aggregate([
+  // Soma de tempo de limpeza por utilizador (aggregate).
+  const cargasLimpeza = await Tarefa.aggregate([
     {
       $match: {
         empresa_id: empresaId,
         utilizador_id: { $in: disponiveisIds },
         data: { $gte: range.start, $lt: range.end },
-        // Não contar tarefas canceladas nem concluídas na carga atual.
         estado: { $nin: ['cancelada', 'concluida'] },
       },
     },
@@ -208,20 +260,43 @@ async function determinarUtilizadorAtribuido(empresaId, range) {
     },
   ]);
 
-  const cargaMap = new Map();
-  for (const c of cargas) {
-    cargaMap.set(String(c._id), c.total);
+  const cargaLimpezaMap = new Map();
+  for (const c of cargasLimpeza) {
+    cargaLimpezaMap.set(String(c._id), c.total);
   }
 
-  // Passo 6 — Escolher o utilizador com menor carga acumulada
-  // (empate → primeiro encontrado; quem não tem tarefas conta como 0).
+  // Para cada utilizador, encontra a última tarefa do dia (com coordenadas).
+  // Fazemos um find por utilizador em vez de um aggregate complexo, porque
+  // precisamos de populate('propriedade_id', 'coordenadas').
   let melhorUtilizador = null;
-  let menorCarga = Infinity;
+  let menorCargaTotal = Infinity;
 
   for (const u of disponiveis) {
-    const carga = cargaMap.get(String(u._id)) ?? 0;
-    if (carga < menorCarga) {
-      menorCarga = carga;
+    // Tempo de limpeza acumulado.
+    const cargaLimpeza = cargaLimpezaMap.get(String(u._id)) ?? 0;
+
+    // Encontra a última tarefa do dia deste utilizador (com coordenadas).
+    const ultimaTarefa = await Tarefa.findOne({
+      utilizador_id: u._id,
+      data: { $gte: range.start, $lt: range.end },
+      estado: { $nin: ['cancelada', 'concluida'] },
+    })
+      .populate({ path: 'propriedade_id', select: 'coordenadas' })
+      .sort({ createdAt: -1 }) // mais recente primeiro
+      .lean();
+
+    // Calcula tempo de viagem.
+    let tempoViagem = 0;
+    if (ultimaTarefa && ultimaTarefa.propriedade_id) {
+      const coordAnterior = ultimaTarefa.propriedade_id.coordenadas;
+      tempoViagem = calcularTempoViagem(coordAnterior, coordenadasNovaPropriedade);
+    }
+
+    // Carga total = limpeza + viagem.
+    const cargaTotal = cargaLimpeza + tempoViagem;
+
+    if (cargaTotal < menorCargaTotal) {
+      menorCargaTotal = cargaTotal;
       melhorUtilizador = u;
     }
   }
@@ -268,7 +343,7 @@ async function processarReservaSmoobu(payload) {
   // mesmo assim, com utilizador_id: null, para o Admin atribuir manualmente.
   let utilizadorAtribuido = null;
   try {
-    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range);
+    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range, propriedade.coordenadas);
   } catch (err) {
     // Não interrompemos: a tarefa tem de ser criada (passo 7).
     console.error(
