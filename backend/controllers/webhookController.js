@@ -211,18 +211,13 @@ async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPr
   if (staff.length === 0) return null;
 
   // Passo 4 — Filtro de Ausências: excluir quem tem ausência que cobre este dia.
-  // v1.8.0: o modelo Ausencia passou a usar intervalos (data_inicio/data_fim).
-  // Sobreposição: ausencia.data_inicio <= dia_limite AND ausencia.data_fim >= dia.
-  // (dia = range.start; dia_limite = range.end, ou seja o início do dia seguinte)
-  // Mantém-se também a verificação do campo `data` legacy para retrocompatibilidade.
+  // v1.16.0: o campo legacy `data` foi removido. Query agora usa apenas
+  // data_inicio/data_fim (sobreposição de intervalos).
+  // Condição: ausencia.data_inicio <= dia AND ausencia.data_fim >= dia.
   const ausentes = await Ausencia.find({
     utilizador_id: { $in: staff.map((s) => s._id) },
-    $or: [
-      // Novo formato (intervalos): ausência cujo [data_inicio, data_fim] cobre o dia.
-      { data_inicio: { $lte: range.start }, data_fim: { $gte: range.start } },
-      // Legacy (dia único): ausência no próprio dia.
-      { data: { $gte: range.start, $lt: range.end } },
-    ],
+    data_inicio: { $lte: range.start },
+    data_fim: { $gte: range.start },
   }).distinct('utilizador_id');
 
   const setAusentes = new Set(ausentes.map(String));
