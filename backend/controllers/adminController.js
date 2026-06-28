@@ -823,6 +823,183 @@ exports.reportarFaltaSubita = async (req, res) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Baixa Prolongada / Férias — Redistribuição de tarefas futuras      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/equipa/:id/baixa
+ *
+ * Regista uma ausência prolongada (baixa/férias) e reatribui TODAS as
+ * tarefas futuras do utilizador nesse período a outros staff disponíveis.
+ *
+ * Body: { data_inicio, data_fim, tipo?, notas? }
+ *
+ * Lógica:
+ *   1. Valida utilizador (empresa, não admin, não eliminado).
+ *   2. Cria Ausencia (ignora duplicado).
+ *   3. Procura Tarefas atribuídas no período [data_inicio, data_fim].
+ *   4. Para cada tarefa, chama determinarUtilizadorAtribuido (o faltante
+ *      já é excluído pela ausência). Reatribui ou deixa órfã.
+ *
+ * Resposta 200: { reatribuidas, orfas, total, detalhes: [...] }
+ */
+exports.registarBaixaProlongada = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    const { data_inicio, data_fim, tipo, notas } = req.body || {};
+    if (!data_inicio || !data_fim) {
+      return res.status(400).json({
+        erro: 'Campos obrigatórios em falta: data_inicio e data_fim.',
+      });
+    }
+
+    // Valida utilizador.
+    const utilizador = await Utilizador.findOne({
+      _id: id,
+      empresa_id: empresaId,
+      eliminado_em: null,
+    });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível registar baixa de um administrador.',
+      });
+    }
+
+    // Normaliza datas para meia-noite UTC.
+    const dInicio = new Date(data_inicio);
+    const inicio = new Date(
+      Date.UTC(dInicio.getUTCFullYear(), dInicio.getUTCMonth(), dInicio.getUTCDate())
+    );
+    const dFim = new Date(data_fim);
+    const fim = new Date(
+      Date.UTC(dFim.getUTCFullYear(), dFim.getUTCMonth(), dFim.getUTCDate())
+    );
+    // fim do dia = meia-noite do dia seguinte (para query <).
+    const fimDia = new Date(fim.getTime() + 24 * 60 * 60 * 1000);
+
+    if (fim < inicio) {
+      return res.status(400).json({
+        erro: 'data_fim não pode ser anterior a data_inicio.',
+      });
+    }
+
+    // 1) Cria a Ausencia (ignora duplicado).
+    try {
+      await Ausencia.create({
+        utilizador_id: id,
+        empresa_id: empresaId,
+        data_inicio: inicio,
+        data_fim: fim,
+        tipo: tipo || 'ferias',
+        notas: notas ? String(notas).trim() : '',
+      });
+    } catch (err) {
+      if (err.code !== 11000) {
+        console.error('⚠️  Erro ao criar ausência de baixa:', err.message);
+      }
+      // Se duplicado, não é problema.
+    }
+
+    // 2) Procura tarefas atribuídas no período.
+    const tarefas = await Tarefa.find({
+      utilizador_id: id,
+      data: { $gte: inicio, $lt: fimDia },
+      estado: 'atribuida',
+    }).populate({ path: 'propriedade_id', select: 'coordenadas nome' });
+
+    if (tarefas.length === 0) {
+      return res.status(200).json({
+        mensagem: 'Sem tarefas para reatribuir no período.',
+        reatribuidas: 0,
+        orfas: 0,
+        total: 0,
+        detalhes: [],
+      });
+    }
+
+    // 3) Para cada tarefa, reatribui usando o load-balancer.
+    const { determinarUtilizadorAtribuido } = require('../controllers/webhookController');
+
+    let reatribuidas = 0;
+    let orfas = 0;
+    const detalhes = [];
+
+    for (const tarefa of tarefas) {
+      // Calcula o range do dia da tarefa.
+      const td = new Date(tarefa.data);
+      const tInicio = new Date(
+        Date.UTC(td.getUTCFullYear(), td.getUTCMonth(), td.getUTCDate())
+      );
+      const tFim = new Date(tInicio.getTime() + 24 * 60 * 60 * 1000);
+      const range = { start: tInicio, end: tFim };
+
+      const coordNovaProp = tarefa.propriedade_id?.coordenadas ?? null;
+      const tempoNovaTarefa = tarefa.tempo_limpeza_minutos || 60;
+
+      let novoUtilizador = null;
+      try {
+        novoUtilizador = await determinarUtilizadorAtribuido(
+          empresaId,
+          range,
+          coordNovaProp,
+          tempoNovaTarefa
+        );
+      } catch (err) {
+        console.error('⚠️  Erro ao reatribuir tarefa', tarefa._id, ':', err.message);
+      }
+
+      if (novoUtilizador) {
+        tarefa.utilizador_id = novoUtilizador;
+        await tarefa.save();
+        reatribuidas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          data: tarefa.data,
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: String(novoUtilizador),
+          reatribuida: true,
+        });
+      } else {
+        tarefa.utilizador_id = null;
+        tarefa.estado = 'por_atribuir';
+        await tarefa.save();
+        orfas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          data: tarefa.data,
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: null,
+          reatribuida: false,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      mensagem: `Baixa processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
+      reatribuidas,
+      orfas,
+      total: tarefas.length,
+      detalhes,
+    });
+  } catch (err) {
+    console.error('❌ registarBaixaProlongada:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
 /* Setup do "Cliente Zero" (bootstrap do ambiente de testes)          */
 /* ------------------------------------------------------------------ */
 

@@ -35,6 +35,7 @@ const {
   alternarEstadoMembro,
   eliminarMembroEquipa,
   reportarFaltaSubita,
+  registarBaixaProlongada,
   setupClienteZero,
 } = require('../controllers/adminController');
 const { reportarAtrasoTarefa } = require('../controllers/tarefaController');
@@ -61,5 +62,8 @@ router.delete('/equipa/:id', auth, eliminarMembroEquipa);
 
 // Falta súbita — reatribuição de emergência.
 router.post('/equipa/:id/falta-subita', auth, reportarFaltaSubita);
+
+// Baixa prolongada / férias — redistribuição de tarefas futuras.
+router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
 
 module.exports = router;
