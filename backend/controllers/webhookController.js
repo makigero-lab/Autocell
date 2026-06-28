@@ -128,6 +128,13 @@ function extrairDadosReserva(payload) {
 /* Lógica de atribuição (passos 3 a 6)                                */
 /* ------------------------------------------------------------------ */
 
+// Capacidade máxima diária por utilizador (7 horas = 420 minutos).
+// Inclui tempo de limpeza + tempo de viagem. Se um utilizador exceder
+// este limite ao receber a nova tarefa, é excluído da atribuição.
+// Justificação: as limpezas devem terminar antes do check-in (ex: 16h00),
+// pelo que 7h de trabalho produtivo é um SLA razoável.
+const CAPACIDADE_MAXIMA_MINUTOS = 420;
+
 /**
  * Calcula o tempo de viagem entre duas coordenadas usando a Fórmula de
  * Haversine (distância em linha reta) e uma velocidade média urbana de
@@ -178,14 +185,20 @@ function calcularTempoViagem(coordA, coordB) {
  *   e a nova propriedade (Haversine). Se o utilizador não tiver tarefas
  *   nesse dia, tempo_viagem = 0.
  *
+ * v1.15.0 — SLA de Capacidade Máxima:
+ *   Após calcular a carga_total (limpeza + viagem + nova tarefa), se
+ *   carga_total > CAPACIDADE_MAXIMA_MINUTOS (420 min = 7h), o utilizador
+ *   é excluído. Se TODOS excederem, devolve null (tarefa por_atribuir).
+ *
  * Devolve null se não houver ninguém disponível.
  *
  * @param {import('mongoose').Types.ObjectId} empresaId
  * @param {{start: Date, end: Date}} range
  * @param {{ lat: number, lng: number } | null} coordenadasNovaPropriedade
+ * @param {number} tempoNovaTarefa - tempo_limpeza_minutos da nova tarefa
  * @returns {Promise<mongoose.Types.ObjectId|null>}
  */
-async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPropriedade) {
+async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPropriedade, tempoNovaTarefa) {
   // Passo 3 — Procurar todos os Staff e Managers ativos da empresa.
   // (O manager — responsável de limpezas — também pode executar limpezas,
   //  pelo que entra no load balancing como qualquer staff.)
@@ -292,8 +305,15 @@ async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPr
       tempoViagem = calcularTempoViagem(coordAnterior, coordenadasNovaPropriedade);
     }
 
-    // Carga total = limpeza + viagem.
-    const cargaTotal = cargaLimpeza + tempoViagem;
+    // Carga total = limpeza acumulada + viagem + tempo da nova tarefa.
+    // v1.15.0: inclui o tempo_limpeza_minutos da NOVA tarefa que está a
+    // ser atribuída (recebido como parâmetro adicional).
+    const cargaTotal = cargaLimpeza + tempoViagem + tempoNovaTarefa;
+
+    // SLA: se a carga total exceder a capacidade máxima, ignora este utilizador.
+    if (cargaTotal > CAPACIDADE_MAXIMA_MINUTOS) {
+      continue;
+    }
 
     if (cargaTotal < menorCargaTotal) {
       menorCargaTotal = cargaTotal;
@@ -343,7 +363,7 @@ async function processarReservaSmoobu(payload) {
   // mesmo assim, com utilizador_id: null, para o Admin atribuir manualmente.
   let utilizadorAtribuido = null;
   try {
-    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range, propriedade.coordenadas);
+    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range, propriedade.coordenadas, tempoLimpeza);
   } catch (err) {
     // Não interrompemos: a tarefa tem de ser criada (passo 7).
     console.error(
