@@ -168,7 +168,21 @@ async function determinarUtilizadorAtribuido(empresaId, range) {
   }).distinct('utilizador_id');
 
   const setAusentes = new Set(ausentes.map(String));
-  const disponiveis = staff.filter((s) => !setAusentes.has(String(s._id)));
+
+  // v1.13.0 — Filtro de Folgas Fixas Semanais:
+  // Um utilizador também é excluído se o dia da semana do check-in
+  // estiver no seu array dias_folga (0=Dom, 6=Sáb, padrão Date.getDay()).
+  const diaSemana = range.start.getDay();
+
+  const disponiveis = staff.filter((s) => {
+    // Filtro de ausências (já calculado acima).
+    if (setAusentes.has(String(s._id))) return false;
+    // Filtro de folgas fixas semanais.
+    if (s.dias_folga && Array.isArray(s.dias_folga) && s.dias_folga.includes(diaSemana)) {
+      return false;
+    }
+    return true;
+  });
 
   if (disponiveis.length === 0) return null;
 

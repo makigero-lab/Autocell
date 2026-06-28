@@ -63,6 +63,19 @@ const utilizadorSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Folgas fixas semanais: array de dias da semana (0=Dom, 1=Seg, ..., 6=Sáb).
+    // O webhook do Smoobu exclui automaticamente o staff cujo dia da semana
+    // do check-in está neste array (não precisa de marcar ausência manual).
+    dias_folga: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: function (arr) {
+          return arr.every((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+        },
+        message: 'dias_folga: valores devem ser inteiros entre 0 (Dom) e 6 (Sáb).',
+      },
+    },
     // Soft delete: em vez de remover o utilizador da BD (o que deixaria
     // Tarefas antigas com utilizador_id órfão), marca-se a data de eliminação.
     // Utilizadores com eliminado_em !== null são excluídos das queries normais.

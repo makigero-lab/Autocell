@@ -65,6 +65,63 @@ const ROLE_VARIANT: Record<Role, "default" | "secondary" | "outline"> = {
   staff: "outline",
 };
 
+const DIAS_SEMANA = [
+  { valor: 0, label: "Dom" },
+  { valor: 1, label: "Seg" },
+  { valor: 2, label: "Ter" },
+  { valor: 3, label: "Qua" },
+  { valor: 4, label: "Qui" },
+  { valor: 5, label: "Sex" },
+  { valor: 6, label: "Sáb" },
+];
+
+/** Componente de checkboxes para Folgas Semanais Fixas (0=Dom a 6=Sáb). */
+function FolgasSemanaisCheckboxes({
+  diasFolga,
+  onChange,
+}: {
+  diasFolga: number[];
+  onChange: (dias: number[]) => void;
+}) {
+  function toggle(dia: number) {
+    if (diasFolga.includes(dia)) {
+      onChange(diasFolga.filter((d) => d !== dia));
+    } else {
+      onChange([...diasFolga, dia].sort((a, b) => a - b));
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">
+        Folgas Semanais Fixas{" "}
+        <span className="font-normal text-muted-foreground">
+          (dias de descanso habituais — o sistema ignora o staff nestes dias)
+        </span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {DIAS_SEMANA.map((d) => {
+          const checked = diasFolga.includes(d.valor);
+          return (
+            <button
+              key={d.valor}
+              type="button"
+              onClick={() => toggle(d.valor)}
+              className={`inline-flex h-9 min-w-[3rem] items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors ${
+                checked
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              {d.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function EquipaPage() {
   const [utilizadores, setUtilizadores] = useState<UtilizadorDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +135,7 @@ export default function EquipaPage() {
     password: "",
     role: "staff" as Role,
     responsavel_id: "" as string,
+    dias_folga: [] as number[],
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -90,6 +148,7 @@ export default function EquipaPage() {
     role: "staff" as Role,
     password: "", // vazia = não alterar
     responsavel_id: "" as string,
+    dias_folga: [] as number[],
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErro, setEditErro] = useState<string | null>(null);
@@ -146,8 +205,9 @@ export default function EquipaPage() {
         password: form.password,
         role: form.role,
         responsavel_id: form.responsavel_id || null,
+        dias_folga: form.dias_folga,
       });
-      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
+      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [] });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -166,6 +226,7 @@ export default function EquipaPage() {
       role: u.role,
       password: "",
       responsavel_id: u.responsavel_id ?? "",
+      dias_folga: u.dias_folga ?? [],
     });
     setEditErro(null);
   }
@@ -192,6 +253,7 @@ export default function EquipaPage() {
         email: editForm.email.trim(),
         role: editForm.role,
         responsavel_id: editForm.responsavel_id || null,
+        dias_folga: editForm.dias_folga,
       };
       if (editForm.password) body.password = editForm.password;
 
@@ -362,6 +424,12 @@ export default function EquipaPage() {
                 </div>
               </div>
 
+              {/* Folgas Semanais Fixas */}
+              <FolgasSemanaisCheckboxes
+                diasFolga={form.dias_folga}
+                onChange={(dias) => setForm((f) => ({ ...f, dias_folga: dias }))}
+              />
+
               {formErro && (
                 <p className="flex items-center gap-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -386,7 +454,7 @@ export default function EquipaPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
+                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [] });
                   }}
                   disabled={submitting}
                 >
@@ -624,6 +692,14 @@ export default function EquipaPage() {
                 Útil para redefinir a password se o funcionário se esquecer.
               </p>
             </div>
+
+            {/* Folgas Semanais Fixas */}
+            <FolgasSemanaisCheckboxes
+              diasFolga={editForm.dias_folga}
+              onChange={(dias) =>
+                setEditForm((f) => ({ ...f, dias_folga: dias }))
+              }
+            />
 
             {editErro && (
               <p className="flex items-center gap-2 text-sm text-destructive">

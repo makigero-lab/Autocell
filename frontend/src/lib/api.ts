@@ -130,6 +130,7 @@ export interface UtilizadorDTO {
     role: Role;
   } | null;
   ativo: boolean;
+  dias_folga?: number[];
   createdAt?: string;
   updatedAt?: string;
 }
