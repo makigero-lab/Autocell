@@ -34,6 +34,7 @@ const {
   atualizarMembroEquipa,
   alternarEstadoMembro,
   eliminarMembroEquipa,
+  reportarFaltaSubita,
   setupClienteZero,
 } = require('../controllers/adminController');
 
@@ -53,5 +54,8 @@ router.post('/equipa', auth, criarMembroEquipa);
 router.put('/equipa/:id', auth, atualizarMembroEquipa);
 router.patch('/equipa/:id/estado', auth, alternarEstadoMembro);
 router.delete('/equipa/:id', auth, eliminarMembroEquipa);
+
+// Falta súbita — reatribuição de emergência.
+router.post('/equipa/:id/falta-subita', auth, reportarFaltaSubita);
 
 module.exports = router;

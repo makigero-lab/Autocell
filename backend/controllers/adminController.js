@@ -14,6 +14,7 @@ const Empresa = require('../models/Empresa');
 const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
+const Ausencia = require('../models/Ausencia');
 const { obterCoordenadas } = require('../utils/geocoding');
 
 /* ------------------------------------------------------------------ */
@@ -662,6 +663,158 @@ exports.eliminarMembroEquipa = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ eliminarMembroEquipa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Falta Súbita — Reatribuição de Emergência                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/equipa/:id/falta-subita
+ *
+ * Regista uma ausência de hoje para o utilizador e reatribui as suas
+ * tarefas de hoje a outros staff disponíveis (usando o load-balancer
+ * do webhookController com Haversine + tempo de viagem).
+ *
+ * Lógica:
+ *   1. Valida utilizador (pertence à empresa, não é admin, não é si próprio).
+ *   2. Regista Ausencia para hoje (ignora duplicado).
+ *   3. Procura Tarefas de hoje (atribuida ou por_atribuir) do utilizador.
+ *   4. Para cada tarefa, tenta determinarUtilizadorAtribuido (o faltante
+ *      já será excluído pela ausência acabada de criar).
+ *   5. Se encontra novo utilizador → atualiza tarefa. Senão → null + por_atribuir.
+ *
+ * Resposta 200: { reatribuidas, orfas, total, detalhes: [...] }
+ */
+exports.reportarFaltaSubita = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    // Valida utilizador.
+    const utilizador = await Utilizador.findOne({
+      _id: id,
+      empresa_id: empresaId,
+      eliminado_em: null,
+    });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível reportar falta de um administrador.',
+      });
+    }
+
+    // 1) Calcula o intervalo de hoje (UTC meia-noite).
+    const agora = new Date();
+    const hojeInicio = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+    const amanhaInicio = new Date(hojeInicio.getTime() + 24 * 60 * 60 * 1000);
+
+    // 2) Regista Ausencia para hoje (ignora erro de duplicado).
+    try {
+      await Ausencia.create({
+        utilizador_id: id,
+        empresa_id: empresaId,
+        data_inicio: hojeInicio,
+        data_fim: hojeInicio,
+        tipo: 'folga',
+        notas: 'Falta súbita reportada pelo admin',
+      });
+    } catch (err) {
+      if (err.code !== 11000) {
+        console.error('⚠️  Erro ao criar ausência de falta súbita:', err.message);
+      }
+      // Se duplicado, não é problema — o utilizador já tem ausência hoje.
+    }
+
+    // 3) Procura tarefas de hoje do utilizador (atribuida ou por_atribuir).
+    const tarefas = await Tarefa.find({
+      utilizador_id: id,
+      data: { $gte: hojeInicio, $lt: amanhaInicio },
+      estado: { $in: ['atribuida', 'por_atribuir'] },
+    }).populate({ path: 'propriedade_id', select: 'coordenadas nome' });
+
+    if (tarefas.length === 0) {
+      return res.status(200).json({
+        mensagem: 'Sem tarefas para reatribuir hoje.',
+        reatribuidas: 0,
+        orfas: 0,
+        total: 0,
+        detalhes: [],
+      });
+    }
+
+    // 4) Para cada tarefa, tenta reatribuir usando o load-balancer.
+    // Importa a função dinamicamente para evitar dependência circular.
+    const { determinarUtilizadorAtribuido } = require('../controllers/webhookController');
+
+    const range = { start: hojeInicio, end: amanhaInicio };
+    let reatribuidas = 0;
+    let orfas = 0;
+    const detalhes = [];
+
+    for (const tarefa of tarefas) {
+      const coordNovaProp = tarefa.propriedade_id?.coordenadas ?? null;
+
+      let novoUtilizador = null;
+      try {
+        novoUtilizador = await determinarUtilizadorAtribuido(
+          empresaId,
+          range,
+          coordNovaProp
+        );
+      } catch (err) {
+        console.error('⚠️  Erro ao reatribuir tarefa', tarefa._id, ':', err.message);
+      }
+
+      if (novoUtilizador) {
+        // Reatribui a tarefa.
+        tarefa.utilizador_id = novoUtilizador;
+        tarefa.estado = 'atribuida';
+        await tarefa.save();
+        reatribuidas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: String(novoUtilizador),
+          reatribuida: true,
+        });
+      } else {
+        // Ninguém disponível → tarefa órfã.
+        tarefa.utilizador_id = null;
+        tarefa.estado = 'por_atribuir';
+        await tarefa.save();
+        orfas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: null,
+          reatribuida: false,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      mensagem: `Falta súbita processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
+      reatribuidas,
+      orfas,
+      total: tarefas.length,
+      detalhes,
+    });
+  } catch (err) {
+    console.error('❌ reportarFaltaSubita:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };
