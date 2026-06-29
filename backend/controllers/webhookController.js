@@ -320,44 +320,100 @@ async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPr
 }
 
 /* ------------------------------------------------------------------ */
-/* Processamento principal (passos 1, 2, 7)                           */
+/* Processamento principal — dispatcher de ações (v1.19.0)            */
 /* ------------------------------------------------------------------ */
 
+// Ações reconhecidas do Smoobu. O webhook reage a 3 tipos:
+//   - CRIAR  → nova reserva → cria tarefa (com load balancing)
+//   - ATUALIZAR → reserva editada → atualiza data/propriedade/tempo da tarefa
+//   - CANCELAR → reserva cancelada → marca tarefa como 'cancelada'
+// Outras ações são ignoradas graciosamente (não é erro).
+const ACOES_CRIAR = [
+  'newReservation',
+  'new_reservation',
+  'reservation_created',
+  'created',
+];
+const ACOES_ATUALIZAR = [
+  'updateReservation',
+  'update_reservation',
+  'reservation_updated',
+  'updated',
+];
+const ACOES_CANCELAR = [
+  'cancellation',
+  'cancel',
+  'reservation_cancelled',
+  'cancelled',
+  'reservation_canceled',
+  'canceled',
+  'reservation_deleted',
+  'deleted',
+];
+
 /**
- * Processa o payload do Smoobu e cria a Tarefa correspondente.
+ * Processa o payload do Smoobu e reage conforme a action:
+ *   - newReservation → cria tarefa (idempotente)
+ *   - updateReservation → atualiza a tarefa existente (data/propriedade/tempo + reavalia atribuição)
+ *   - cancellation → cancela a tarefa existente (respeita concluídas)
+ *   - outras → ignora graciosamente (não é erro)
  *
  * @param {object} payload
- * @returns {Promise<object|null>} a tarefa criada (ou a existente, se duplicado),
- *   ou null se a action não for newReservation.
+ * @returns {Promise<object|null>} a tarefa afetada, ou null se ignorada.
  */
 async function processarReservaSmoobu(payload) {
-  // Passo 1 — Receber o payload (identificar propriedade + data_check_in).
   const { smoobuPropId, dataCheckInRaw, reservaId, content } =
     extrairDadosReserva(payload);
 
-  // v1.18.0 — Ação do webhook: o Smoobu envia webhooks para várias ações
-  // (newReservation, updateReservation, cancellation, etc.). Só criamos
-  // tarefa para 'newReservation' (e variantes). Outras ações são ignoradas
-  // graciosamente (não é erro — apenas não há nada a fazer).
   const action =
     (payload && payload.action) ||
     (payload && payload.type) ||
     (content && content.action) ||
-    'newReservation'; // fallback: se não vier action, assume newReservation
+    'newReservation';
 
-  const ACOES_CRIAR_TAREFA = [
-    'newReservation',
-    'new_reservation',
-    'reservation_created',
-    'created',
-  ];
-  if (!ACOES_CRIAR_TAREFA.includes(action)) {
-    console.log(
-      `ℹ️  Webhook com action "${action}" — não cria tarefa (apenas newReservation é processado).`
-    );
-    return null; // não é erro → o WebhookLog fica 'processado'
+  // 1) Cancelamento → cancela a tarefa existente.
+  if (ACOES_CANCELAR.includes(action)) {
+    return cancelarTarefaPorReserva(reservaId);
   }
 
+  // 2) Atualização → atualiza a tarefa existente (ou cria se não existir).
+  if (ACOES_ATUALIZAR.includes(action)) {
+    const atualizada = await atualizarTarefaPorReserva(
+      reservaId,
+      smoobuPropId,
+      dataCheckInRaw,
+      content
+    );
+    if (atualizada) return atualizada;
+    // Sem tarefa existente → cai para o fluxo de criação (reserva pode ter
+    // sido criada antes de o webhook estar ativo).
+    console.log(
+      `ℹ️  Update para reserva ${reservaId} sem tarefa existente — tratar como nova.`
+    );
+  }
+
+  // 3) Criação (newReservation ou fallback de update sem tarefa).
+  if (!ACOES_CRIAR.includes(action) && !ACOES_ATUALIZAR.includes(action)) {
+    console.log(
+      `ℹ️  Webhook com action "${action}" — ação não processada (ignorada).`
+    );
+    return null;
+  }
+
+  return criarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw, content);
+}
+
+/* ------------------------------------------------------------------ */
+/* Handler: CRIAR tarefa (newReservation)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cria a Tarefa correspondente a uma nova reserva do Smoobu.
+ * Aplica idempotência (se já existir tarefa com o mesmo smoobu_reserva_id,
+ * não duplica). Se a tarefa existente estiver cancelada (reserva foi
+ * cancelada e agora re-criada), re-activa-a.
+ */
+async function criarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw, content) {
   if (!smoobuPropId || !dataCheckInRaw) {
     throw new Error(
       'Payload do Smoobu inválido: propriedade ou data_check_in em falta.'
@@ -369,13 +425,20 @@ async function processarReservaSmoobu(payload) {
     throw new Error(`data_check_in inválida: ${dataCheckInRaw}`);
   }
 
-  // v1.18.0 — Idempotência: o Smoobu pode reenviar o mesmo webhook (retries
-  // em caso de timeout/network glitch). Se já existir uma tarefa com o
-  // mesmo smoobu_reserva_id, NÃO criamos duplicado — apenas devolvemos a
-  // existente. Isto evita tarefas órfãs/duplicadas que poluiriam o calendário.
+  // Idempotência: se já existir tarefa para esta reserva, não duplica.
   if (reservaId) {
     const existente = await Tarefa.findOne({ smoobu_reserva_id: reservaId });
     if (existente) {
+      // Se a tarefa foi cancelada (reserva cancelada e agora re-criada),
+      // re-activa e mantém a atribuição (ou por_atribuir se não tinha).
+      if (existente.estado === 'cancelada') {
+        console.log(
+          `♻️  Reserva ${reservaId} re-activada (tarefa ${existente._id} estava cancelada).`
+        );
+        existente.estado = existente.utilizador_id ? 'atribuida' : 'por_atribuir';
+        await existente.save();
+        return existente;
+      }
       console.log(
         `♻️  Webhook duplicado (reserva ${reservaId}) — tarefa ${existente._id} já existe. Sem ação.`
       );
@@ -383,13 +446,13 @@ async function processarReservaSmoobu(payload) {
     }
   }
 
-  // Passo 2 — Encontrar a empresa à qual a propriedade pertence.
+  // Encontrar a empresa à qual a propriedade pertence.
   const propriedade = await Propriedade.findOne({ smoobu_id: smoobuPropId });
   if (!propriedade) {
     throw new Error(`Propriedade Smoobu ${smoobuPropId} não encontrada na BD.`);
   }
 
-  // Validação: se a propriedade estiver suspensa (ativo: false), aborta.
+  // Propriedade suspensa → não cria tarefa.
   if (!propriedade.ativo) {
     console.warn(
       `⚠️  Propriedade "${propriedade.nome}" (smoobu_id: ${smoobuPropId}) está suspensa — tarefa não criada.`
@@ -401,24 +464,23 @@ async function processarReservaSmoobu(payload) {
 
   const empresaId = propriedade.empresa_id;
 
-  // Tempo de limpeza: payload.data > content (legacy) > propriedade > default (60).
-  // O Smoobu não envia este campo oficialmente, mas alguns clientes adicionam-no.
-  // NOTA: tem de ser calculado ANTES de determinar o utilizador atribuído,
-  // pois o load balancer usa-o no cálculo da carga total (SLA de 420 min).
+  // Tempo de limpeza (calculado antes do load balancer, que o usa no SLA).
   const tempoLimpeza =
     content.tempo_limpeza_minutos ??
     content.cleaning_minutes ??
     propriedade.tempo_limpeza_minutos ??
     60;
 
-  // Passos 3 a 6 — Determinar o utilizador (best-effort).
-  // Se a lógica de atribuição falhar por qualquer motivo, criamos a tarefa
-  // mesmo assim, com utilizador_id: null, para o Admin atribuir manualmente.
+  // Load balancer (best-effort: se falhar, cria sem atribuição).
   let utilizadorAtribuido = null;
   try {
-    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range, propriedade.coordenadas, tempoLimpeza);
+    utilizadorAtribuido = await determinarUtilizadorAtribuido(
+      empresaId,
+      range,
+      propriedade.coordenadas,
+      tempoLimpeza
+    );
   } catch (err) {
-    // Não interrompemos: a tarefa tem de ser criada (passo 7).
     console.error(
       '⚠️  Erro ao determinar utilizador (tarefa será criada sem atribuição):',
       err.message
@@ -426,7 +488,6 @@ async function processarReservaSmoobu(payload) {
     utilizadorAtribuido = null;
   }
 
-  // Passo 7 — Criar a Tarefa (mesmo sem utilizador → null).
   const novaTarefa = await Tarefa.create({
     empresa_id: empresaId,
     propriedade_id: propriedade._id,
@@ -440,8 +501,7 @@ async function processarReservaSmoobu(payload) {
 
   if (utilizadorAtribuido) {
     console.log(
-      `✅ Tarefa ${novaTarefa._id} atribuída ao utilizador ${utilizadorAtribuido} ` +
-        `(carga do dia calculada).`
+      `✅ Tarefa ${novaTarefa._id} atribuída ao utilizador ${utilizadorAtribuido} (carga do dia calculada).`
     );
   } else {
     console.log(
@@ -450,6 +510,174 @@ async function processarReservaSmoobu(payload) {
   }
 
   return novaTarefa;
+}
+
+/* ------------------------------------------------------------------ */
+/* Handler: CANCELAR tarefa (cancellation)                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cancela a tarefa associada a uma reserva (quando o Smoobu envia
+ * `action: cancellation`). Respeita tarefas já concluídas (o trabalho
+ * já foi feito — não faz sentido "desconcluir"). Idempotente.
+ */
+async function cancelarTarefaPorReserva(reservaId) {
+  if (!reservaId) {
+    console.log('ℹ️  Cancelamento sem reservaId — sem ação.');
+    return null;
+  }
+
+  const tarefa = await Tarefa.findOne({ smoobu_reserva_id: reservaId });
+  if (!tarefa) {
+    console.log(
+      `ℹ️  Cancelamento da reserva ${reservaId} sem tarefa associada — sem ação.`
+    );
+    return null;
+  }
+
+  // Já concluída → o trabalho foi feito, não "desconclui".
+  if (tarefa.estado === 'concluida') {
+    console.log(
+      `⚠️  Reserva ${reservaId} cancelada mas tarefa ${tarefa._id} já estava concluída — mantém estado.`
+    );
+    return tarefa;
+  }
+
+  // Já cancelada → idempotente.
+  if (tarefa.estado === 'cancelada') {
+    return tarefa;
+  }
+
+  tarefa.estado = 'cancelada';
+  await tarefa.save();
+  console.log(`🚫 Tarefa ${tarefa._id} cancelada (reserva ${reservaId} cancelada no Smoobu).`);
+  return tarefa;
+}
+
+/* ------------------------------------------------------------------ */
+/* Handler: ATUALIZAR tarefa (updateReservation)                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Atualiza a tarefa associada a uma reserva quando o Smoobu envia
+ * `action: updateReservation` (a reserva foi editada — ex: data de
+ * check-in alterada, apartamento trocado).
+ *
+ * Comportamento:
+ *   - Se a tarefa estiver concluída → mantém (trabalho já feito).
+ *   - Se a tarefa estiver cancelada → re-activa (a reserva voltou a ativa).
+ *   - Atualiza `data`, `propriedade_id`, `tempo_limpeza_minutos`.
+ *   - Se a `data` mudou, reavalia a atribuição: se o funcionário atual
+ *     não estiver disponível no novo dia (folga/ausência/inativo), a
+ *     tarefa passa a `por_atribuir` para o Admin reatribuir. Isto evita
+ *     shuffle desnecessário (mantém o funcionário se ainda for válido).
+ */
+async function atualizarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw, content) {
+  if (!reservaId) {
+    console.log('ℹ️  Update sem reservaId — sem ação.');
+    return null;
+  }
+
+  const tarefa = await Tarefa.findOne({ smoobu_reserva_id: reservaId });
+  if (!tarefa) {
+    // Sem tarefa existente → o dispatcher cai para o fluxo de criação.
+    return null;
+  }
+
+  // Já concluída → mantém (trabalho já feito, editar não faz sentido).
+  if (tarefa.estado === 'concluida') {
+    console.log(
+      `⚠️  Reserva ${reservaId} atualizada mas tarefa ${tarefa._id} já estava concluída — mantém estado.`
+    );
+    return tarefa;
+  }
+
+  let mudou = false;
+  let mudouData = false;
+  let novoRange = null;
+
+  // 1) Atualizar data de check-in.
+  if (dataCheckInRaw) {
+    novoRange = getDayRange(dataCheckInRaw);
+    if (novoRange && tarefa.data.getTime() !== novoRange.start.getTime()) {
+      tarefa.data = novoRange.start;
+      mudou = true;
+      mudouData = true;
+    }
+  }
+
+  // 2) Atualizar propriedade (se o apartamento foi trocado).
+  if (smoobuPropId) {
+    const propriedade = await Propriedade.findOne({ smoobu_id: smoobuPropId });
+    if (propriedade) {
+      if (String(tarefa.propriedade_id) !== String(propriedade._id)) {
+        tarefa.propriedade_id = propriedade._id;
+        tarefa.empresa_id = propriedade.empresa_id;
+        mudou = true;
+      }
+      // Atualiza tempo de limpeza (pode variar por propriedade).
+      const tempoLimpeza =
+        content.tempo_limpeza_minutos ??
+        content.cleaning_minutes ??
+        propriedade.tempo_limpeza_minutos ??
+        60;
+      const novoTempo = Number(tempoLimpeza) || 60;
+      if (tarefa.tempo_limpeza_minutos !== novoTempo) {
+        tarefa.tempo_limpeza_minutos = novoTempo;
+        mudou = true;
+      }
+    }
+  }
+
+  // 3) Re-activar se estava cancelada (a reserva foi re-activada no Smoobu).
+  if (tarefa.estado === 'cancelada') {
+    tarefa.estado = tarefa.utilizador_id ? 'atribuida' : 'por_atribuir';
+    mudou = true;
+  }
+
+  // 4) Se a data mudou, reavalia a atribuição.
+  //    Mantém o funcionário atual se ainda for disponível no novo dia;
+  //    caso contrário, passa a 'por_atribuir' (o Admin reatribui).
+  if (mudouData && tarefa.utilizador_id && novoRange) {
+    const utilizador = await Utilizador.findById(tarefa.utilizador_id).lean();
+    const diaSemana = novoRange.start.getDay();
+
+    let disponivel = !!(utilizador && utilizador.ativo && !utilizador.eliminado_em);
+
+    // Filtro de folgas fixas semanais.
+    if (disponivel && Array.isArray(utilizador.dias_folga) && utilizador.dias_folga.includes(diaSemana)) {
+      disponivel = false;
+    }
+
+    // Filtro de ausências (férias/baixa).
+    if (disponivel) {
+      const ausente = await Ausencia.exists({
+        utilizador_id: tarefa.utilizador_id,
+        data_inicio: { $lte: novoRange.start },
+        data_fim: { $gte: novoRange.start },
+      });
+      if (ausente) disponivel = false;
+    }
+
+    if (!disponivel) {
+      console.log(
+        `↪️  Funcionário atual não disponível no novo dia — tarefa ${tarefa._id} passa a 'por_atribuir'.`
+      );
+      tarefa.utilizador_id = null;
+      if (tarefa.estado === 'atribuida' || tarefa.estado === 'em_curso') {
+        tarefa.estado = 'por_atribuir';
+      }
+    }
+  }
+
+  if (mudou) {
+    await tarefa.save();
+    console.log(`✏️  Tarefa ${tarefa._id} atualizada (reserva ${reservaId} editada no Smoobu).`);
+  } else {
+    console.log(`ℹ️  Update da reserva ${reservaId} sem alterações na tarefa ${tarefa._id}.`);
+  }
+
+  return tarefa;
 }
 
 /* ------------------------------------------------------------------ */

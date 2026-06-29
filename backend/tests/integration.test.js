@@ -369,10 +369,10 @@ describe('POST /webhooks/smoobu (load balancer)', () => {
     expect(tarefas2.length).toBe(1);
   });
 
-  it('action não-newReservation → 200 mas não cria tarefa (log processado)', async () => {
+  it('action desconhecida → 200 mas não cria tarefa (log processado)', async () => {
     const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
     const res = await request(app).post('/webhooks/smoobu').send({
-      action: 'updateReservation',
+      action: 'pingTest',
       data: { id: 888, arrival: amanha, apartment: { id: 200, name: 'X' } },
     });
     expect(res.status).toBe(200);
@@ -386,6 +386,127 @@ describe('POST /webhooks/smoobu (load balancer)', () => {
     const log = await WebhookLog.findOne({ 'payload.data.id': 888 });
     expect(log).not.toBeNull();
     expect(log.status).toBe('processado');
+  });
+
+  it('cancellation → cancela a tarefa existente', async () => {
+    // 1) Cria a tarefa com newReservation.
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(tarefa).not.toBeNull();
+    expect(tarefa.estado).not.toBe('cancelada');
+
+    // 2) Envia cancellation → tarefa fica cancelada.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const cancelada = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(cancelada.estado).toBe('cancelada');
+  });
+
+  it('cancellation idempotente → cancelar 2x mantém cancelada', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    // Cria primeiro (o beforeEach limpa as tarefas entre testes).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    // Cancela 2x.
+    for (let i = 0; i < 2; i++) {
+      await request(app).post('/webhooks/smoobu').send({
+        action: 'cancellation',
+        data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+      });
+      await esperar(300);
+    }
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(tarefa.estado).toBe('cancelada');
+  });
+
+  it('cancellation de reserva sem tarefa → sem erro', async () => {
+    const res = await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 999999, arrival: '2026-08-01', apartment: { id: 200, name: 'X' } },
+    });
+    expect(res.status).toBe(200);
+    await esperar(300);
+    // Nenhuma tarefa com este reservaId.
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '999999' });
+    expect(tarefa).toBeNull();
+  });
+
+  it('updateReservation → atualiza a data da tarefa existente', async () => {
+    // 1) Cria tarefa com check-in amanhã.
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 2222, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '2222' });
+    const dataOriginal = new Date(tarefa.data).getTime();
+
+    // 2) Envia update com check-in daqui a 5 dias.
+    const daqui5dias = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'updateReservation',
+      data: { id: 2222, arrival: daqui5dias, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+
+    const atualizada = await Tarefa.findOne({ smoobu_reserva_id: '2222' });
+    // A data mudou.
+    expect(new Date(atualizada.data).getTime()).not.toBe(dataOriginal);
+    // Não criou duplicado.
+    const count = await Tarefa.countDocuments({ smoobu_reserva_id: '2222' });
+    expect(count).toBe(1);
+  });
+
+  it('updateReservation sem tarefa existente → cria a tarefa (fallback)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'updateReservation',
+      data: { id: 3333, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '3333' });
+    expect(tarefa).not.toBeNull(); // criou por fallback
+  });
+
+  it('newReservation de reserva anteriormente cancelada → re-activa', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    // 1) Cria.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    // 2) Cancela.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const cancelada = await Tarefa.findOne({ smoobu_reserva_id: '4444' });
+    expect(cancelada.estado).toBe('cancelada');
+    // 3) Re-cria (newReservation com mesmo ID) → re-activa.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const reactivada = await Tarefa.findOne({ smoobu_reserva_id: '4444' });
+    expect(reactivada.estado).not.toBe('cancelada');
+    // Não criou duplicado.
+    const count = await Tarefa.countDocuments({ smoobu_reserva_id: '4444' });
+    expect(count).toBe(1);
   });
 });
 
