@@ -97,6 +97,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 | `/manager/tarefas`    | Placeholder (Tarefas)                        | Desktop-first |
 | `/manager/equipa`     | Placeholder (Equipa)                         | Desktop-first |
 | `/staff`        | Área do Staff — tarefas de limpeza do dia — **protegida** (role staff) | Mobile-first |
+| `/staff/ausencias` | Pedidos de ausência do staff (férias/doença/outro) — criar + histórico + cancelar pendentes | Mobile-first |
 | `/staff/tarefas/[id]` | Detalhe da Tarefa (checklist + concluir)      | Mobile-first |
 
 ### 3.1 Área Admin (`/admin`)
@@ -130,6 +131,20 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
   - Estado (Atribuída / Por atribuir) com badge colorido
   - Botão "Iniciar tarefa" → abre o **Detalhe da Tarefa** (`/staff/tarefas/[id]`). Em tarefas "Por atribuir" o botão fica desativado.
 - **Rodapé** fixo com identidade "Autocell · Área do Staff".
+
+#### Página `/staff/ausencias` — Pedidos de Ausência
+
+- **Botão "Novo Pedido de Ausência"** no topo → abre modal com formulário:
+  - Tipo (select: Férias / Doença / Outro)
+  - Data de Início + Data de Fim (input date, com `min` dinâmico)
+  - Notas (opcional)
+  - Submissão → `POST /api/staff/ausencias` (estado fica sempre `pendente`). Mensagem de sucesso: "Pedido enviado para aprovação."
+- **Histórico de pedidos** (cards): cada cartão mostra o tipo, as datas formatadas (pt-PT), notas (se houver), data do pedido, e uma **Badge de estado**:
+  - Pendente → amarelo (`secondary`)
+  - Aprovada → verde (`default`)
+  - Rejeitada → vermelho (`destructive`)
+- **Cancelar pedidos pendentes**: botão de lixeira (ícone `Trash2`) só aparece em pedidos pendentes. `DELETE /api/staff/ausencias/:id` (backend valida que só pendentes podem ser cancelados → 403 se já aprovada/rejeitada).
+- Consome `GET /api/staff/ausencias` (via proxy `/api/staff/[...path]` com cookie httpOnly).
 
 ### 3.3 Ecrã de Detalhe da Tarefa (`/staff/tarefas/[id]`)
 

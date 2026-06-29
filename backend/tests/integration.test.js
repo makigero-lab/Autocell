@@ -1424,4 +1424,51 @@ describe('Fluxo de aprovação de ausências', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('staff cancela pedido pendente → 200 + elimina', async () => {
+    // Cria um pedido pendente.
+    const r = await request(app)
+      .post('/api/staff/ausencias')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        data_inicio: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+        data_fim: new Date(Date.now() + 32 * 86400000).toISOString().slice(0, 10),
+        tipo: 'outro',
+      });
+    expect(r.status).toBe(201);
+    const id = r.body.ausencia._id;
+
+    // Cancela.
+    const res = await request(app)
+      .delete(`/api/staff/ausencias/${id}`)
+      .set('Authorization', `Bearer ${staffToken}`);
+    expect(res.status).toBe(200);
+
+    // Confirma que foi eliminado.
+    const Ausencia = require('../models/Ausencia');
+    const still = await Ausencia.findById(id);
+    expect(still).toBeNull();
+  });
+
+  it('staff não pode cancelar pedido já aprovado → 403', async () => {
+    // Cria pendente.
+    const r = await request(app)
+      .post('/api/staff/ausencias')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        data_inicio: new Date(Date.now() + 40 * 86400000).toISOString().slice(0, 10),
+        data_fim: new Date(Date.now() + 42 * 86400000).toISOString().slice(0, 10),
+        tipo: 'ferias',
+      });
+    const id = r.body.ausencia._id;
+
+    // Admin aprova.
+    await authPatch(`/api/admin/ausencias/${id}/estado`, { estado: 'aprovada' });
+
+    // Staff tenta cancelar → 403.
+    const res = await request(app)
+      .delete(`/api/staff/ausencias/${id}`)
+      .set('Authorization', `Bearer ${staffToken}`);
+    expect(res.status).toBe(403);
+  });
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Clock, ClipboardList, LogOut, CalendarDays, Loader2 } from "lucide-react";
+import { Clock, ClipboardList, LogOut, CalendarDays, CalendarOff, Loader2 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -154,6 +154,14 @@ export default function StaffPage() {
           <Button variant="outline" className="w-full justify-center gap-2">
             <CalendarDays className="h-4 w-4" />
             Ver a minha Agenda
+          </Button>
+        </Link>
+
+        {/* Botão Pedidos de Ausência */}
+        <Link href="/staff/ausencias" prefetch>
+          <Button variant="outline" className="w-full justify-center gap-2">
+            <CalendarOff className="h-4 w-4" />
+            Pedidos de Ausência
           </Button>
         </Link>
 

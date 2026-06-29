@@ -141,3 +141,57 @@ exports.criarAusencia = async (req, res) => {
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };
+
+/* ------------------------------------------------------------------ */
+/* DELETE /api/staff/ausencias/:id — cancelar pedido pendente         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cancela (elimina) um pedido de ausência do próprio utilizador.
+ *
+ * Regras:
+ *   - Só pode cancelar PEDIDOS PENDENTES (aprovações/rejeições são finais).
+ *   - Só pode cancelar as SUAS ausências (valida utilizador_id).
+ *
+ * Resposta 200: { mensagem, ausencia_id }
+ */
+exports.cancelarAusencia = async (req, res) => {
+  try {
+    const utilizadorId = req.user && req.user.id;
+    if (!utilizadorId) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
+    }
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de ausência inválido.' });
+    }
+
+    const ausencia = await Ausencia.findOne({
+      _id: id,
+      utilizador_id: utilizadorId,
+    });
+
+    if (!ausencia) {
+      return res.status(404).json({
+        erro: 'Ausência não encontrada (ou não te pertence).',
+      });
+    }
+
+    if (ausencia.estado !== 'pendente') {
+      return res.status(403).json({
+        erro: `Não podes cancelar um pedido já ${ausencia.estado}.`,
+      });
+    }
+
+    await Ausencia.deleteOne({ _id: id });
+
+    return res.status(200).json({
+      mensagem: 'Pedido cancelado com sucesso.',
+      ausencia_id: id,
+    });
+  } catch (err) {
+    console.error('❌ cancelarAusencia:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
