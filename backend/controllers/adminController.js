@@ -228,6 +228,50 @@ exports.getTarefas = async (req, res) => {
 /* ------------------------------------------------------------------ */
 
 /**
+ * PATCH /api/admin/propriedades/:id/estado
+ * Alterna o campo `ativo` da propriedade (true ↔ false).
+ * Propriedades inativas são ignoradas pelo webhook do Smoobu.
+ *
+ * Resposta 200: { propriedade: { ... }, ativo: boolean }
+ */
+exports.alternarEstadoPropriedade = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de propriedade inválido.' });
+    }
+
+    const propriedade = await Propriedade.findOne({
+      _id: id,
+      empresa_id: empresaId,
+    });
+    if (!propriedade) {
+      return res.status(404).json({
+        erro: 'Propriedade não encontrada (ou não pertence a esta empresa).',
+      });
+    }
+
+    // Se vier `ativo` no body, usa-o; senão alterna.
+    const novoEstado =
+      typeof req.body?.ativo === 'boolean' ? req.body.ativo : !propriedade.ativo;
+
+    propriedade.ativo = novoEstado;
+    await propriedade.save();
+
+    return res.status(200).json({
+      propriedade,
+      ativo: novoEstado,
+    });
+  } catch (err) {
+    console.error('❌ alternarEstadoPropriedade:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
  * GET /api/admin/equipa
  * Lista todos os utilizadores da empresa (qualquer role).
  * O `empresa_id` vem do JWT (via obterEmpresaId, que lê `req.user.empresa_id`).

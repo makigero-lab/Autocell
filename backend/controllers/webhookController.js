@@ -351,6 +351,16 @@ async function processarReservaSmoobu(payload) {
     throw new Error(`Propriedade Smoobu ${smoobuPropId} não encontrada na BD.`);
   }
 
+  // Validação: se a propriedade estiver suspensa (ativo: false), aborta.
+  if (!propriedade.ativo) {
+    console.warn(
+      `⚠️  Propriedade "${propriedade.nome}" (smoobu_id: ${smoobuPropId}) está suspensa — tarefa não criada.`
+    );
+    throw new Error(
+      `Propriedade "${propriedade.nome}" está suspensa (ativo: false). Tarefa não criada.`
+    );
+  }
+
   const empresaId = propriedade.empresa_id;
 
   // Passos 3 a 6 — Determinar o utilizador (best-effort).

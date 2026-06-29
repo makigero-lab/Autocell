@@ -28,6 +28,7 @@ const { auth } = require('../middleware/auth');
 const {
   getPropriedades,
   criarPropriedade,
+  alternarEstadoPropriedade,
   getTarefas,
   getEquipa,
   criarMembroEquipa,
@@ -46,6 +47,7 @@ router.get('/setup', setupClienteZero);
 // Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);
 router.post('/propriedades', auth, criarPropriedade);
+router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
 router.get('/tarefas', auth, getTarefas);
