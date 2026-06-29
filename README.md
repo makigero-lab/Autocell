@@ -68,20 +68,36 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | `GET`  | `/`  | Healthcheck. Devolve `{ "status": "API do Alojamento Local online e ligada à BD!" }` |
-| `POST` | `/webhooks/smoobu` | Webhook do Smoobu (nova reserva). Cria a Tarefa de limpeza aplicando filtro de ausências + load balancing. Responde `200` imediato e processa de forma assíncrona. |
-| `POST` | `/api/auth/login` | **Login** (público). Body: `{ email, password }`. Devolve `{ token, utilizador }`. |
-| `GET`  | `/api/auth/me` | Dados do utilizador autenticado. **Header:** `Authorization: Bearer <token>`. |
-| `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Auth:** JWT (ou `x-empresa-id` legacy). |
-| `POST` | `/api/admin/propriedades` | Cria propriedade para a empresa. **Auth:** JWT (ou `x-empresa-id` legacy); **Body:** `smoobu_id`, `nome`, `tempo_limpeza_minutos?` |
+| `GET`  | `/api/health` | Estado da API + BD (MongoDB) + uptime. Devolve `503` se a BD estiver em baixo. |
+| `POST` | `/webhooks/smoobu` | Webhook do Smoobu (nova reserva). Cria a Tarefa de limpeza aplicando filtro de ausências + folgas fixas + load balancing (Haversine + SLA 420 min). Responde `200` imediato e processa de forma assíncrona. Propriedades inativas são ignoradas. |
+| `POST` | `/api/auth/login` | **Login** (público, com rate limiting). Body: `{ email, password }`. Devolve `{ token, utilizador }`. |
+| `GET`  | `/api/auth/me` | Dados do utilizador autenticado. **Auth:** JWT. |
+| `GET`  | `/api/auth/me/calendario` | Calendário pessoal (tarefas + ausências). **Auth:** JWT. |
+| `GET`  | `/api/auth/me/tarefas` | Tarefas de hoje do utilizador. **Auth:** JWT. |
+| `PATCH`| `/api/auth/me/tarefas/:id/concluir` | Concluir tarefa (staff). **Auth:** JWT. |
+| `GET`  | `/api/admin/dashboard` | Estatísticas em tempo real (propriedades, equipa, tarefas hoje, carga por staff). **Auth:** JWT. |
+| `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Auth:** JWT. |
+| `POST` | `/api/admin/propriedades` | Cria propriedade (com geocoding da morada). **Auth:** JWT; **Body:** `smoobu_id`, `nome`, `morada`, `tempo_limpeza_minutos?` |
+| `PATCH`| `/api/admin/propriedades/:id/estado` | Ativa/desativa propriedade (webhook ignora inativas). **Auth:** JWT. |
+| `GET`  | `/api/admin/tarefas` | Lista tarefas (calendário de operações). Query: `?inicio=&fim=`. **Auth:** JWT. |
+| `GET`  | `/api/admin/tarefas/export` | Exportação CSV de tarefas. Query: `?inicio=&fim=`. **Auth:** JWT. |
+| `POST` | `/api/admin/tarefas` | Cria tarefa manualmente. **Auth:** JWT. |
+| `PATCH`| `/api/admin/tarefas/:id/atribuir` | Atribui tarefa a um funcionário. **Auth:** JWT. |
+| `PATCH`| `/api/admin/tarefas/:id/estado` | Atualiza estado da tarefa. **Auth:** JWT. |
+| `POST` | `/api/admin/tarefas/:id/atraso` | Reporta atraso (soma minutos). **Auth:** JWT. |
 | `GET`  | `/api/admin/equipa` | Lista os utilizadores da empresa (sem `password_hash`). **Auth:** JWT. |
-| `POST` | `/api/admin/equipa` | Cria membro de equipa (bcrypt hash). **Auth:** JWT; **Body:** `nome`, `email`, `password`, `role?` |
-| `PUT`  | `/api/admin/equipa/:id` | Atualiza utilizador (nome/email/role/password opcional). **Auth:** JWT. |
-| `PATCH`| `/api/admin/equipa/:id/estado` | Alterna ativo/desativado (inativos não fazem login). **Auth:** JWT. |
-| `DELETE`| `/api/admin/equipa/:id` | Elimina utilizador (não permite auto-eliminação). **Auth:** JWT. |
-| `GET`  | `/api/admin/ausencias` | Lista ausências (folgas/férias) da empresa. **Auth:** JWT. Query: `?futuras=true` |
-| `POST` | `/api/admin/ausencias` | Regista ausência (folga/férias). **Auth:** JWT; **Body:** `utilizador_id`, `data_inicio`, `data_fim`, `tipo`, `notas?` |
+| `POST` | `/api/admin/equipa` | Cria membro de equipa (bcrypt hash). **Auth:** JWT; **Body:** `nome`, `email`, `password`, `role?`, `dias_folga?`, `telefone?` |
+| `PUT`  | `/api/admin/equipa/:id` | Atualiza utilizador. **Auth:** JWT. |
+| `PATCH`| `/api/admin/equipa/:id/estado` | Alterna ativo/desativado. **Auth:** JWT. |
+| `DELETE`| `/api/admin/equipa/:id` | Elimina utilizador (soft delete). **Auth:** JWT. |
+| `POST` | `/api/admin/equipa/:id/falta-subita` | Reatribuição de emergência (tarefas do dia). **Auth:** JWT. |
+| `POST` | `/api/admin/equipa/:id/baixa` | Baixa prolongada/férias (redistribui tarefas futuras). **Auth:** JWT. |
+| `GET`  | `/api/admin/ausencias` | Lista ausências. Query: `?futuras=true`. **Auth:** JWT. |
+| `POST` | `/api/admin/ausencias` | Regista ausência. **Auth:** JWT. |
 | `DELETE`| `/api/admin/ausencias/:id` | Elimina ausência. **Auth:** JWT. |
-| `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Staff + Propriedade de teste, **com password de login**). Idempotente. Devolve o `empresa_id`. |
+| `GET`  | `/api/admin/auditoria` | Histórico de ações administrativas. Query: `?limit=`. **Auth:** JWT. |
+| `GET`  | `/api/admin/relatorios/produtividade` | Relatório de produtividade (resumo + por staff/dia/estado/propriedade). Query: `?inicio=&fim=`. **Auth:** JWT. |
+| `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Admin + Manager + Staff + Propriedade de teste). Idempotente. **PÚBLICO.** |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).
 

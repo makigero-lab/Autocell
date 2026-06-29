@@ -40,6 +40,9 @@ const loginLimiter = rateLimit({
   max: 5, // máximo 5 tentativas por IP por janela
   standardHeaders: true, // envia headers RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset
   legacyHeaders: false, // não envia headers X-RateLimit-* antigos
+  // Em ambiente de teste, desativa o limitador (os testes fazem muitos logins
+  // seguidos para validar os fluxos de auth). Não afeta produção.
+  skip: () => process.env.NODE_ENV === 'test',
   message: {
     erro: 'Muitas tentativas de login. Tente novamente mais tarde.',
   },

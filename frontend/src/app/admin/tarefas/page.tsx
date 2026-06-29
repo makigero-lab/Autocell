@@ -37,6 +37,7 @@ import {
   type UtilizadorDTO,
   type Role,
 } from "@/lib/api";
+import { PaginationBar } from "@/components/admin/pagination-bar";
 
 interface TarefaAdmin {
   _id: string;
@@ -82,6 +83,19 @@ export default function AdminTarefasPage() {
   const [staff, setStaff] = useState<UtilizadorDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+
+  // Paginação client-side.
+  const [pagina, setPagina] = useState(1);
+  const [tamPagina, setTamPagina] = useState(25);
+  const totalPaginas = Math.max(1, Math.ceil(tarefas.length / tamPagina));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const tarefasPagina = tarefas.slice(
+    (paginaSegura - 1) * tamPagina,
+    paginaSegura * tamPagina
+  );
+  useEffect(() => {
+    if (pagina > totalPaginas) setPagina(totalPaginas);
+  }, [pagina, totalPaginas]);
 
   // Formulário de criação
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -311,7 +325,7 @@ export default function AdminTarefasPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {tarefas.map((t) => (
+                  {tarefasPagina.map((t) => (
                     <tr key={t._id} className="hover:bg-muted/30">
                       <td className="px-4 py-3">{formatarData(t.data)}</td>
                       <td className="px-4 py-3 font-medium">{t.propriedade_id?.nome ?? "—"}</td>
@@ -354,6 +368,21 @@ export default function AdminTarefasPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          {/* Paginação */}
+          {!loading && tarefas.length > 0 && (
+            <PaginationBar
+              page={paginaSegura}
+              totalPages={totalPaginas}
+              total={tarefas.length}
+              pageSize={tamPagina}
+              onPageChange={setPagina}
+              onPageSizeChange={(n) => {
+                setTamPagina(n);
+                setPagina(1);
+              }}
+              label="tarefas"
+            />
           )}
         </CardContent>
       </Card>

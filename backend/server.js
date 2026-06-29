@@ -19,6 +19,7 @@ const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const ausenciaRoutes = require('./routes/ausenciaRoutes');
+const relatorioRoutes = require('./routes/relatorioRoutes');
 const { iniciarDailyBriefing } = require('./jobs/dailyBriefing');
 
 const app = express();
@@ -84,6 +85,9 @@ app.use('/api/admin', adminRoutes);
 
 // Gestão de Ausências (Folgas e Férias) — protegido por auth.
 app.use('/api/admin/ausencias', ausenciaRoutes);
+
+// Relatórios / Analytics — protegido por auth.
+app.use('/api/admin/relatorios', relatorioRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Middleware global de tratamento de erros                            */

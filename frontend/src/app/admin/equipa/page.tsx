@@ -42,6 +42,7 @@ import {
   type UtilizadorDTO,
   type Role,
 } from "@/lib/api";
+import { PaginationBar } from "@/components/admin/pagination-bar";
 
 /**
  * Página de Equipa — Painel de Administração (CRUD completo).
@@ -129,6 +130,20 @@ export default function EquipaPage() {
   const [utilizadores, setUtilizadores] = useState<UtilizadorDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+
+  // Paginação client-side.
+  const [pagina, setPagina] = useState(1);
+  const [tamPagina, setTamPagina] = useState(25);
+  const totalPaginas = Math.max(1, Math.ceil(utilizadores.length / tamPagina));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const utilizadoresPagina = utilizadores.slice(
+    (paginaSegura - 1) * tamPagina,
+    paginaSegura * tamPagina
+  );
+  // Quando a lista muda (criar/eliminar/filtrar), reposiciona a página.
+  useEffect(() => {
+    if (pagina > totalPaginas) setPagina(totalPaginas);
+  }, [pagina, totalPaginas]);
 
   // Formulário de criação
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -569,7 +584,7 @@ export default function EquipaPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {utilizadores.map((u) => (
+                  {utilizadoresPagina.map((u) => (
                     <tr key={u._id} className="hover:bg-muted/30">
                       <td className="px-4 py-3 font-medium">{u.nome}</td>
                       <td className="px-4 py-3 text-muted-foreground">
@@ -676,6 +691,21 @@ export default function EquipaPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          {/* Paginação */}
+          {!loading && utilizadores.length > 0 && (
+            <PaginationBar
+              page={paginaSegura}
+              totalPages={totalPaginas}
+              total={utilizadores.length}
+              pageSize={tamPagina}
+              onPageChange={setPagina}
+              onPageSizeChange={(n) => {
+                setTamPagina(n);
+                setPagina(1);
+              }}
+              label="membros"
+            />
           )}
         </CardContent>
       </Card>
