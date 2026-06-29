@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Building2, Loader2, AlertCircle, RefreshCw, Power, Pencil } from "lucide-react";
+import { Plus, Building2, Loader2, AlertCircle, RefreshCw, Power, Pencil, Download, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,6 +162,42 @@ export default function PropriedadesPage() {
     }
   }
 
+  // Estado da sincronização de propriedades do Smoobu (importação em massa).
+  const [sincronizando, setSincronizando] = useState(false);
+  const [sincronizacaoOk, setSincronizacaoOk] = useState<string | null>(null);
+
+  /** Importa em massa os apartamentos do Smoobu (upsert — não altera existentes). */
+  async function handleSincronizarPropriedades() {
+    setSincronizando(true);
+    setSincronizacaoOk(null);
+    setErro(null);
+    try {
+      const res = await adminPost<{
+        totalRecebidas: number;
+        criadas: number;
+        existentes: number;
+        erros: number;
+      }>("/api/admin/smoobu/sincronizar-propriedades", {});
+
+      let msg = `Sincronização concluída! ${res.criadas} propriedade(s) importada(s)`;
+      if (res.existentes > 0) msg += `, ${res.existentes} já existiam`;
+      if (res.erros > 0) msg += `, ${res.erros} com erro`;
+      msg += `.`;
+      setSincronizacaoOk(msg);
+
+      // Atualiza a tabela para mostrar as novas propriedades.
+      await carregar();
+    } catch (e) {
+      setErro(
+        e instanceof Error
+          ? `Sincronização falhou: ${e.message}`
+          : "Erro ao sincronizar propriedades com o Smoobu."
+      );
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
   // Estado do modal de edição
   const [editando, setEditando] = useState<PropriedadeDTO | null>(null);
   const [editForm, setEditForm] = useState({
@@ -191,8 +227,8 @@ export default function PropriedadesPage() {
     if (!editando) return;
     setEditErro(null);
 
-    if (!editForm.nome.trim() || !editForm.smoobu_id.trim() || !editForm.morada.trim()) {
-      setEditErro("Nome, Smoobu ID e Morada são obrigatórios.");
+    if (!editForm.nome.trim() || !editForm.morada.trim()) {
+      setEditErro("Nome e Morada são obrigatórios.");
       return;
     }
 
@@ -208,7 +244,6 @@ export default function PropriedadesPage() {
         `/api/admin/propriedades/${editando._id}`,
         {
           nome: editForm.nome.trim(),
-          smoobu_id: editForm.smoobu_id.trim(),
           morada: editForm.morada.trim(),
           tempo_limpeza_minutos: tempo,
         }
@@ -245,6 +280,19 @@ export default function PropriedadesPage() {
             aria-label="Atualizar"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSincronizarPropriedades}
+            disabled={sincronizando}
+            title="Importa todos os apartamentos do Smoobu de uma vez. Não altera as propriedades já existentes (preserva as tuas edições)."
+          >
+            {sincronizando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Sincronizar Smoobu</span>
           </Button>
           <Button onClick={() => setMostrarForm((v) => !v)}>
             <Plus className="h-4 w-4" />
@@ -427,6 +475,24 @@ export default function PropriedadesPage() {
         </Card>
       )}
 
+      {/* Sucesso da sincronização Smoobu */}
+      {sincronizacaoOk && (
+        <Card className="border-emerald-500/50">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <span>{sincronizacaoOk}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSincronizacaoOk(null)}
+              className="ml-auto"
+            >
+              Fechar
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabela de propriedades */}
       <Card>
         <CardContent className="p-0">
@@ -546,15 +612,12 @@ export default function PropriedadesPage() {
               <Input
                 id="edit-smoobu"
                 value={editForm.smoobu_id}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, smoobu_id: e.target.value }))
-                }
-                required
-                className="font-mono text-xs"
+                readOnly
+                tabIndex={-1}
+                className="font-mono text-xs bg-muted/50 text-muted-foreground cursor-not-allowed"
               />
               <p className="text-xs text-muted-foreground">
-                Tem de corresponder ao <code>apartment.id</code> do Smoobu
-                (é assim que o webhook cruza a reserva com a propriedade).
+                O Smoobu ID não é editável (é o identificador do apartamento no Smoobu).
               </p>
             </div>
             <div className="space-y-1.5">
