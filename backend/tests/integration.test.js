@@ -315,6 +315,32 @@ describe('Propriedades (CRUD)', () => {
       .send({});
     expect(res.status).toBe(400);
   });
+
+  it('toggle de propriedade legacy (sem morada) → 200 (não rebenta por validação)', async () => {
+    // Simula uma propriedade criada antes de `morada` ser obrigatória:
+    // insere diretamente na coleção (bypassing Mongoose validation).
+    const Propriedade = require('../models/Propriedade');
+    const doc = await Propriedade.collection.insertOne({
+      smoobu_id: 'prop-legacy-sem-morada',
+      nome: 'Legacy',
+      // morada EM FALTA (campo obrigatório no schema atual)
+      coordenadas: { lat: null, lng: null },
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      tempo_limpeza_minutos: 60,
+      ativo: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // O toggle (PATCH .../estado) deve funcionar SEM 500, mesmo com a
+    // morada em falta. Isto era o bug de produção ( findOne+save re-valida ).
+    const res = await authPatch(
+      `/api/admin/propriedades/${doc.insertedId}/estado`,
+      {}
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.ativo).toBe(false);
+  });
 });
 
 /* ------------------------------------------------------------------ */
