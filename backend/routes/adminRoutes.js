@@ -39,7 +39,7 @@ const {
   registarBaixaProlongada,
   setupClienteZero,
 } = require('../controllers/adminController');
-const { reportarAtrasoTarefa } = require('../controllers/tarefaController');
+const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
@@ -54,6 +54,11 @@ router.get('/tarefas', auth, getTarefas);
 
 // Reportar atraso numa tarefa.
 router.post('/tarefas/:id/atraso', auth, reportarAtrasoTarefa);
+
+// Gestão manual de tarefas.
+router.post('/tarefas', auth, criarTarefa);
+router.patch('/tarefas/:id/atribuir', auth, atribuirTarefa);
+router.patch('/tarefas/:id/estado', auth, atualizarEstadoTarefa);
 
 // Gestão de equipa (utilizadores) da empresa. PROTEGIDO por JWT.
 router.get('/equipa', auth, getEquipa);

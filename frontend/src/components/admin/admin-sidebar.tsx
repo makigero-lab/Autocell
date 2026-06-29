@@ -8,6 +8,7 @@ import {
   Building2,
   Users,
   CalendarDays,
+  ClipboardList,
   Menu,
   X,
   Sparkles,
@@ -27,6 +28,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Propriedades", href: "/admin/propriedades", icon: Building2 },
+  { label: "Tarefas", href: "/admin/tarefas", icon: ClipboardList },
   { label: "Equipa", href: "/admin/equipa", icon: Users },
   { label: "Calendário de Folgas", href: "/admin/calendario", icon: CalendarDays },
 ];
