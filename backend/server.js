@@ -13,6 +13,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
 const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -39,9 +40,31 @@ app.use(
 // Permite receber e enviar JSON no corpo dos pedidos.
 app.use(express.json());
 
+// Rate limiting global: 100 pedidos por IP a cada 15 minutos.
+// Não se aplica ao webhook do Smoobu (que tem o seu próprio padrão).
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitos pedidos. Tente novamente mais tarde.' },
+});
+app.use('/api/', globalLimiter);
+
 /* ------------------------------------------------------------------ */
 /* Rotas                                                               */
 /* ------------------------------------------------------------------ */
+// Health check — estado da API + BD.
+app.get('/api/health', async (req, res) => {
+  const mongoReady = mongoose.connection.readyState === 1;
+  return res.status(mongoReady ? 200 : 503).json({
+    status: mongoReady ? 'ok' : 'degraded',
+    uptime: process.uptime(),
+    mongodb: mongoReady ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Rota de teste para confirmar que a API está online.
 app.get('/', (req, res) => {
   res.json({ status: 'API do Alojamento Local online e ligada à BD!' });

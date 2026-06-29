@@ -15,7 +15,9 @@ const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
 const Ausencia = require('../models/Ausencia');
+const Auditoria = require('../models/Auditoria');
 const { obterCoordenadas } = require('../utils/geocoding');
+const { registarAuditoria } = require('../utils/auditoria');
 
 /* ------------------------------------------------------------------ */
 /* Helper — obter empresa_id do JWT (req.user)                        */
@@ -240,6 +242,18 @@ exports.criarPropriedade = async (req, res) => {
       coordenadas,
       empresa_id: empresaId,
       tempo_limpeza_minutos: tempo,
+    });
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'criar',
+      recurso: 'propriedade',
+      recurso_id: nova._id,
+      descricao: `Propriedade "${nova.nome}" criada`,
+      detalhes: { smoobu_id: nova.smoobu_id, morada: nova.morada },
     });
 
     return res.status(201).json({ propriedade: nova });
@@ -519,6 +533,18 @@ exports.criarMembroEquipa = async (req, res) => {
     // Resposta sem password_hash.
     const utilizador = novo.toObject();
     delete utilizador.password_hash;
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'criar',
+      recurso: 'utilizador',
+      recurso_id: utilizador._id,
+      descricao: `Utilizador "${utilizador.nome}" criado`,
+      detalhes: { email: utilizador.email, role: utilizador.role },
+    });
 
     return res.status(201).json({ utilizador });
   } catch (err) {
@@ -808,6 +834,17 @@ exports.eliminarMembroEquipa = async (req, res) => {
     utilizador.ativo = false; // garante que não consegue fazer login
     await utilizador.save();
 
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'eliminar',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Utilizador "${nomeEliminado}" eliminado (soft delete)`,
+    });
+
     return res.status(200).json({
       mensagem: `Utilizador "${nomeEliminado}" eliminado com sucesso.`,
       utilizador_id: id,
@@ -956,6 +993,18 @@ exports.reportarFaltaSubita = async (req, res) => {
         });
       }
     }
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'falta_subita',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Falta súbita reportada para "${utilizador.nome}": ${reatribuidas} reatribuídas, ${orfas} órfãs`,
+      detalhes: { reatribuidas, orfas, total: tarefas.length },
+    });
 
     return res.status(200).json({
       mensagem: `Falta súbita processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
@@ -1134,6 +1183,18 @@ exports.registarBaixaProlongada = async (req, res) => {
       }
     }
 
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'baixa_prolongada',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Baixa/férias registadas para "${utilizador.nome}": ${reatribuidas} reatribuídas, ${orfas} órfãs`,
+      detalhes: { data_inicio: inicio, data_fim: fim, reatribuidas, orfas, total: tarefas.length },
+    });
+
     return res.status(200).json({
       mensagem: `Baixa processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
       reatribuidas,
@@ -1143,6 +1204,37 @@ exports.registarBaixaProlongada = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ registarBaixaProlongada:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Auditoria                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/auditoria
+ * Lista os registos de auditoria da empresa (ordenados por data desc).
+ *
+ * Query params: ?limit=50 (default 50, máx 200)
+ *
+ * Resposta 200: { auditoria: [...] }
+ */
+exports.getAuditoria = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const limit = Math.min(Number(req.query?.limit) || 50, 200);
+
+    const auditoria = await Auditoria.find({ empresa_id: empresaId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({ auditoria });
+  } catch (err) {
+    console.error('❌ getAuditoria:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

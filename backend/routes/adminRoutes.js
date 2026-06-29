@@ -38,6 +38,7 @@ const {
   eliminarMembroEquipa,
   reportarFaltaSubita,
   registarBaixaProlongada,
+  getAuditoria,
   setupClienteZero,
 } = require('../controllers/adminController');
 const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
@@ -76,5 +77,8 @@ router.post('/equipa/:id/falta-subita', auth, reportarFaltaSubita);
 
 // Baixa prolongada / férias — redistribuição de tarefas futuras.
 router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
+
+// Auditoria.
+router.get('/auditoria', auth, getAuditoria);
 
 module.exports = router;
