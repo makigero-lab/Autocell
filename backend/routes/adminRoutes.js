@@ -26,6 +26,7 @@ const router = express.Router();
 
 const { auth } = require('../middleware/auth');
 const {
+  getDashboard,
   getPropriedades,
   criarPropriedade,
   alternarEstadoPropriedade,
@@ -37,12 +38,17 @@ const {
   eliminarMembroEquipa,
   reportarFaltaSubita,
   registarBaixaProlongada,
+  exportarTarefasCSV,
+  getAuditoria,
   setupClienteZero,
 } = require('../controllers/adminController');
-const { reportarAtrasoTarefa } = require('../controllers/tarefaController');
+const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
+
+// Dashboard com dados reais.
+router.get('/dashboard', auth, getDashboard);
 
 // Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);
@@ -52,8 +58,16 @@ router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
 router.get('/tarefas', auth, getTarefas);
 
+// Exportação CSV de tarefas.
+router.get('/tarefas/export', auth, exportarTarefasCSV);
+
 // Reportar atraso numa tarefa.
 router.post('/tarefas/:id/atraso', auth, reportarAtrasoTarefa);
+
+// Gestão manual de tarefas.
+router.post('/tarefas', auth, criarTarefa);
+router.patch('/tarefas/:id/atribuir', auth, atribuirTarefa);
+router.patch('/tarefas/:id/estado', auth, atualizarEstadoTarefa);
 
 // Gestão de equipa (utilizadores) da empresa. PROTEGIDO por JWT.
 router.get('/equipa', auth, getEquipa);
@@ -67,5 +81,8 @@ router.post('/equipa/:id/falta-subita', auth, reportarFaltaSubita);
 
 // Baixa prolongada / férias — redistribuição de tarefas futuras.
 router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
+
+// Auditoria.
+router.get('/auditoria', auth, getAuditoria);
 
 module.exports = router;

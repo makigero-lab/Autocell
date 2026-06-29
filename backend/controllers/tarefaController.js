@@ -7,10 +7,9 @@
 const mongoose = require('mongoose');
 const Tarefa = require('../models/Tarefa');
 const Propriedade = require('../models/Propriedade');
+const Utilizador = require('../models/Utilizador');
 const { obterEmpresaId } = require('./adminController');
 
-// Importa a constante de capacidade máxima do webhookController.
-// Como determinarUtilizadorAtribuido não é exportado, lemos apenas a constante.
 const CAPACIDADE_MAXIMA_MINUTOS = 420;
 
 /**
@@ -113,6 +112,197 @@ exports.reportarAtrasoTarefa = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ reportarAtrasoTarefa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Criação manual de tarefas                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/tarefas
+ *
+ * Cria uma tarefa manualmente (sem depender do Smoobu).
+ *
+ * Body: { propriedade_id, utilizador_id?, data, tempo_limpeza_minutos?, tipo? }
+ *
+ * Se utilizador_id vier, atribui diretamente. Se não vier, a tarefa fica
+ * 'por_atribuir' e o admin pode atribuir depois via PATCH /:id/atribuir.
+ *
+ * Resposta 201: { tarefa: { ... } }
+ */
+exports.criarTarefa = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { propriedade_id, utilizador_id, data, tempo_limpeza_minutos, tipo } = req.body || {};
+
+    if (!propriedade_id || !data) {
+      return res.status(400).json({
+        erro: 'Campos obrigatórios em falta: propriedade_id e data.',
+      });
+    }
+    if (!mongoose.isValidObjectId(propriedade_id)) {
+      return res.status(400).json({ erro: 'propriedade_id inválido.' });
+    }
+
+    // Valida que a propriedade pertence à empresa e está ativa.
+    const propriedade = await Propriedade.findOne({
+      _id: propriedade_id,
+      empresa_id: empresaId,
+    });
+    if (!propriedade) {
+      return res.status(404).json({
+        erro: 'Propriedade não encontrada (ou não pertence a esta empresa).',
+      });
+    }
+
+    // Valida utilizador_id se vier.
+    let utilizadorValidado = null;
+    if (utilizador_id) {
+      if (!mongoose.isValidObjectId(utilizador_id)) {
+        return res.status(400).json({ erro: 'utilizador_id inválido.' });
+      }
+      const user = await Utilizador.findOne({
+        _id: utilizador_id,
+        empresa_id: empresaId,
+        role: { $in: ['staff', 'manager'] },
+        ativo: true,
+        eliminado_em: null,
+      });
+      if (!user) {
+        return res.status(400).json({
+          erro: 'Utilizador não encontrado (ou não é staff/manager ativo da empresa).',
+        });
+      }
+      utilizadorValidado = user._id;
+    }
+
+    // Normaliza data para meia-noite UTC.
+    const d = new Date(data);
+    if (isNaN(d.getTime())) {
+      return res.status(400).json({ erro: 'data inválida.' });
+    }
+    const dataNormalizada = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+    );
+
+    const nova = await Tarefa.create({
+      empresa_id: empresaId,
+      propriedade_id,
+      utilizador_id: utilizadorValidado,
+      data: dataNormalizada,
+      tempo_limpeza_minutos: Number(tempo_limpeza_minutos) || propriedade.tempo_limpeza_minutos || 60,
+      tipo: tipo || 'limpeza',
+      estado: utilizadorValidado ? 'atribuida' : 'por_atribuir',
+    });
+
+    return res.status(201).json({ tarefa: nova });
+  } catch (err) {
+    console.error('❌ criarTarefa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * PATCH /api/admin/tarefas/:id/atribuir
+ *
+ * Atribui (ou reatribui) uma tarefa a um utilizador.
+ * Usado para atribuir tarefas órfãs (por_atribuir) manualmente.
+ *
+ * Body: { utilizador_id }
+ * Se utilizador_id for null, remove a atribuição (volta a por_atribuir).
+ *
+ * Resposta 200: { tarefa: { ... } }
+ */
+exports.atribuirTarefa = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de tarefa inválido.' });
+    }
+
+    const tarefa = await Tarefa.findOne({ _id: id, empresa_id: empresaId });
+    if (!tarefa) {
+      return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    const { utilizador_id } = req.body || {};
+
+    if (!utilizador_id) {
+      // Remove atribuição.
+      tarefa.utilizador_id = null;
+      tarefa.estado = 'por_atribuir';
+    } else {
+      if (!mongoose.isValidObjectId(utilizador_id)) {
+        return res.status(400).json({ erro: 'utilizador_id inválido.' });
+      }
+      const user = await Utilizador.findOne({
+        _id: utilizador_id,
+        empresa_id: empresaId,
+        role: { $in: ['staff', 'manager'] },
+        ativo: true,
+        eliminado_em: null,
+      });
+      if (!user) {
+        return res.status(400).json({
+          erro: 'Utilizador não encontrado (ou não é staff/manager ativo).',
+        });
+      }
+      tarefa.utilizador_id = user._id;
+      tarefa.estado = 'atribuida';
+    }
+
+    await tarefa.save();
+    return res.status(200).json({ tarefa });
+  } catch (err) {
+    console.error('❌ atribuirTarefa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * PATCH /api/admin/tarefas/:id/estado
+ *
+ * Atualiza o estado de uma tarefa manualmente.
+ *
+ * Body: { estado: 'atribuida' | 'em_curso' | 'concluida' | 'cancelada' }
+ *
+ * Resposta 200: { tarefa: { ... } }
+ */
+exports.atualizarEstadoTarefa = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de tarefa inválido.' });
+    }
+
+    const { estado } = req.body || {};
+    const estadosValidos = ['por_atribuir', 'atribuida', 'em_curso', 'concluida', 'cancelada'];
+    if (!estadosValidos.includes(estado)) {
+      return res.status(400).json({ erro: 'Estado inválido.' });
+    }
+
+    const tarefa = await Tarefa.findOne({ _id: id, empresa_id: empresaId });
+    if (!tarefa) {
+      return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    tarefa.estado = estado;
+    if (estado === 'concluida') tarefa.concluida_em = new Date();
+    await tarefa.save();
+
+    return res.status(200).json({ tarefa });
+  } catch (err) {
+    console.error('❌ atualizarEstadoTarefa:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

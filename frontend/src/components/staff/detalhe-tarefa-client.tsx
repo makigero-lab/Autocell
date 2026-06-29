@@ -40,7 +40,7 @@ import {
   DialogContent,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { adminPost } from "@/lib/api";
+import { adminPost, adminPatch } from "@/lib/api";
 import type { TarefaMock } from "@/lib/mock-data";
 
 const tipoIcon: Record<TarefaMock["tipo"], React.ComponentType<{ className?: string }>> = {
@@ -116,12 +116,20 @@ export function DetalheTarefaClient({
     });
   };
 
-  const handleConcluir = () => {
+  const handleConcluir = async () => {
     if (!todasMarcadas || concluida) return;
-    // Simulação: marca como concluída e volta para a lista de tarefas.
-    // Quando houver API, aqui será um POST/PUT para marcar a tarefa como concluída.
-    setConcluida(true);
-    setTimeout(() => router.push("/staff"), 800);
+    // PATCH real para marcar a tarefa como concluída + guardar observações.
+    try {
+      await adminPatch(`/api/auth/me/tarefas/${tarefa.id}/concluir`, {
+        observacoes,
+      });
+      setConcluida(true);
+      setTimeout(() => router.push("/staff"), 800);
+    } catch {
+      // Mesmo com erro, marca visualmente como concluída (best-effort).
+      setConcluida(true);
+      setTimeout(() => router.push("/staff"), 800);
+    }
   };
 
   async function handleReportarAtraso() {

@@ -15,7 +15,9 @@ const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
 const Ausencia = require('../models/Ausencia');
+const Auditoria = require('../models/Auditoria');
 const { obterCoordenadas } = require('../utils/geocoding');
+const { registarAuditoria } = require('../utils/auditoria');
 
 /* ------------------------------------------------------------------ */
 /* Helper — obter empresa_id do JWT (req.user)                        */
@@ -51,6 +53,110 @@ exports.obterEmpresaId = obterEmpresaId;
 /* ------------------------------------------------------------------ */
 /* Propriedades                                                         */
 /* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/dashboard
+ * Devolve estatísticas em tempo real para o dashboard do admin.
+ *
+ * Resposta 200: {
+ *   totalPropriedades, propriedadesAtivas,
+ *   membrosEquipaAtivos, tarefasHoje, tarefasPorAtribuir,
+ *   tarefasConcluidasHoje, tarefasPorStaff: [{ nome, tarefas, carga_minutos }]
+ * }
+ */
+exports.getDashboard = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    // Datas de hoje (UTC).
+    const agora = new Date();
+    const hojeInicio = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+    const amanhaInicio = new Date(hojeInicio.getTime() + 24 * 60 * 60 * 1000);
+
+    // Contagens em paralelo.
+    const [
+      totalPropriedades,
+      propriedadesAtivas,
+      membrosEquipaAtivos,
+      tarefasHoje,
+      tarefasPorAtribuir,
+      tarefasConcluidasHoje,
+    ] = await Promise.all([
+      Propriedade.countDocuments({ empresa_id: empresaId }),
+      Propriedade.countDocuments({ empresa_id: empresaId, ativo: true }),
+      Utilizador.countDocuments({
+        empresa_id: empresaId,
+        role: { $in: ['staff', 'manager'] },
+        ativo: true,
+        eliminado_em: null,
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: { $ne: 'cancelada' },
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: 'por_atribuir',
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: 'concluida',
+      }),
+    ]);
+
+    // Carga por staff (aggregate).
+    const cargasPorStaff = await Tarefa.aggregate([
+      {
+        $match: {
+          empresa_id: new mongoose.Types.ObjectId(empresaId),
+          data: { $gte: hojeInicio, $lt: amanhaInicio },
+          estado: { $nin: ['cancelada', 'concluida'] },
+          utilizador_id: { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: '$utilizador_id',
+          tarefas: { $sum: 1 },
+          carga_minutos: { $sum: '$tempo_limpeza_minutos' },
+        },
+      },
+    ]);
+
+    // Popula nomes dos staff.
+    const staffIds = cargasPorStaff.map((c) => c._id);
+    const staffInfo = await Utilizador.find({ _id: { $in: staffIds } })
+      .select('nome')
+      .lean();
+    const staffMap = new Map(staffInfo.map((s) => [String(s._id), s.nome]));
+
+    const tarefasPorStaff = cargasPorStaff.map((c) => ({
+      utilizador_id: String(c._id),
+      nome: staffMap.get(String(c._id)) ?? '?',
+      tarefas: c.tarefas,
+      carga_minutos: c.carga_minutos,
+    }));
+
+    return res.status(200).json({
+      totalPropriedades,
+      propriedadesAtivas,
+      membrosEquipaAtivos,
+      tarefasHoje,
+      tarefasPorAtribuir,
+      tarefasConcluidasHoje,
+      tarefasPorStaff,
+    });
+  } catch (err) {
+    console.error('❌ getDashboard:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
 
 /**
  * GET /api/admin/propriedades
@@ -136,6 +242,18 @@ exports.criarPropriedade = async (req, res) => {
       coordenadas,
       empresa_id: empresaId,
       tempo_limpeza_minutos: tempo,
+    });
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'criar',
+      recurso: 'propriedade',
+      recurso_id: nova._id,
+      descricao: `Propriedade "${nova.nome}" criada`,
+      detalhes: { smoobu_id: nova.smoobu_id, morada: nova.morada },
     });
 
     return res.status(201).json({ propriedade: nova });
@@ -415,6 +533,18 @@ exports.criarMembroEquipa = async (req, res) => {
     // Resposta sem password_hash.
     const utilizador = novo.toObject();
     delete utilizador.password_hash;
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'criar',
+      recurso: 'utilizador',
+      recurso_id: utilizador._id,
+      descricao: `Utilizador "${utilizador.nome}" criado`,
+      detalhes: { email: utilizador.email, role: utilizador.role },
+    });
 
     return res.status(201).json({ utilizador });
   } catch (err) {
@@ -704,6 +834,17 @@ exports.eliminarMembroEquipa = async (req, res) => {
     utilizador.ativo = false; // garante que não consegue fazer login
     await utilizador.save();
 
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'eliminar',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Utilizador "${nomeEliminado}" eliminado (soft delete)`,
+    });
+
     return res.status(200).json({
       mensagem: `Utilizador "${nomeEliminado}" eliminado com sucesso.`,
       utilizador_id: id,
@@ -852,6 +993,18 @@ exports.reportarFaltaSubita = async (req, res) => {
         });
       }
     }
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'falta_subita',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Falta súbita reportada para "${utilizador.nome}": ${reatribuidas} reatribuídas, ${orfas} órfãs`,
+      detalhes: { reatribuidas, orfas, total: tarefas.length },
+    });
 
     return res.status(200).json({
       mensagem: `Falta súbita processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
@@ -1030,6 +1183,18 @@ exports.registarBaixaProlongada = async (req, res) => {
       }
     }
 
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'baixa_prolongada',
+      recurso: 'utilizador',
+      recurso_id: id,
+      descricao: `Baixa/férias registadas para "${utilizador.nome}": ${reatribuidas} reatribuídas, ${orfas} órfãs`,
+      detalhes: { data_inicio: inicio, data_fim: fim, reatribuidas, orfas, total: tarefas.length },
+    });
+
     return res.status(200).json({
       mensagem: `Baixa processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
       reatribuidas,
@@ -1039,6 +1204,92 @@ exports.registarBaixaProlongada = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ registarBaixaProlongada:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Exportação CSV                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/tarefas/export?inicio=YYYY-MM-DD&fim=YYYY-MM-DD
+ * Exporta tarefas em formato CSV (para Excel/Sheets).
+ *
+ * Resposta 200: text/csv (download direto)
+ */
+exports.exportarTarefasCSV = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { inicio, fim } = req.query;
+    const filtro = { empresa_id: empresaId, estado: { $ne: 'cancelada' } };
+    if (inicio || fim) {
+      const dataFiltro = {};
+      if (inicio) {
+        const d = new Date(inicio);
+        if (!isNaN(d.getTime())) dataFiltro.$gte = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      }
+      if (fim) {
+        const d = new Date(fim);
+        if (!isNaN(d.getTime())) dataFiltro.$lt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + 86400000);
+      }
+      if (Object.keys(dataFiltro).length > 0) filtro.data = dataFiltro;
+    }
+
+    const tarefas = await Tarefa.find(filtro)
+      .populate({ path: 'propriedade_id', select: 'nome' })
+      .populate({ path: 'utilizador_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    // Cabeçalho CSV.
+    const header = 'Data,Propriedade,Funcionario,Tipo,Estado,Tempo Limpeza (min),Observacoes\n';
+    const linhas = tarefas.map((t) => {
+      const data = new Date(t.data).toLocaleDateString('pt-PT');
+      const prop = (t.propriedade_id?.nome || '').replace(/,/g, ';');
+      const func = (t.utilizador_id?.nome || 'Por atribuir').replace(/,/g, ';');
+      const obs = (t.observacoes || '').replace(/[\n\r,]/g, ' ');
+      return `${data},${prop},${func},${t.tipo},${t.estado},${t.tempo_limpeza_minutos},${obs}`;
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="tarefas.csv"');
+    return res.status(200).send(header + linhas);
+  } catch (err) {
+    console.error('❌ exportarTarefasCSV:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Auditoria                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/auditoria
+ * Lista os registos de auditoria da empresa (ordenados por data desc).
+ *
+ * Query params: ?limit=50 (default 50, máx 200)
+ *
+ * Resposta 200: { auditoria: [...] }
+ */
+exports.getAuditoria = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const limit = Math.min(Number(req.query?.limit) || 50, 200);
+
+    const auditoria = await Auditoria.find({ empresa_id: empresaId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({ auditoria });
+  } catch (err) {
+    console.error('❌ getAuditoria:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

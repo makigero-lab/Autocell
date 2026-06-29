@@ -17,7 +17,7 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const { auth } = require('../middleware/auth');
-const { login, me, meuCalendario } = require('../controllers/authController');
+const { login, me, meuCalendario, minhasTarefas, minhaTarefaDetalhe, concluirMinhaTarefa } = require('../controllers/authController');
 
 /**
  * Limitador de taxa específico para a rota de login.
@@ -40,6 +40,9 @@ const loginLimiter = rateLimit({
   max: 5, // máximo 5 tentativas por IP por janela
   standardHeaders: true, // envia headers RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset
   legacyHeaders: false, // não envia headers X-RateLimit-* antigos
+  // Em ambiente de teste, desativa o limitador (os testes fazem muitos logins
+  // seguidos para validar os fluxos de auth). Não afeta produção.
+  skip: () => process.env.NODE_ENV === 'test',
   message: {
     erro: 'Muitas tentativas de login. Tente novamente mais tarde.',
   },
@@ -53,5 +56,14 @@ router.get('/me', auth, me);
 
 // Calendário pessoal do utilizador — requer JWT.
 router.get('/me/calendario', auth, meuCalendario);
+
+// Tarefas de hoje do utilizador — requer JWT.
+router.get('/me/tarefas', auth, minhasTarefas);
+
+// Detalhe de uma tarefa do utilizador — requer JWT.
+router.get('/me/tarefas/:id', auth, minhaTarefaDetalhe);
+
+// Concluir tarefa — requer JWT.
+router.patch('/me/tarefas/:id/concluir', auth, concluirMinhaTarefa);
 
 module.exports = router;

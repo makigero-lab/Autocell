@@ -14,6 +14,7 @@ const jwt = require('jsonwebtoken');
 const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
 const Ausencia = require('../models/Ausencia');
+const Propriedade = require('../models/Propriedade');
 const { JWT_SECRET } = require('../middleware/auth');
 
 // Tempo de expiração do token (pode ser overridden por env).
@@ -179,6 +180,134 @@ exports.meuCalendario = async (req, res) => {
     return res.status(200).json({ tarefas, ausencias });
   } catch (err) {
     console.error('❌ meuCalendario:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * GET /api/auth/me/tarefas (requer JWT)
+ *
+ * Devolve as tarefas de HOJE do utilizador autenticado, com populate da
+ * propriedade (nome, morada, coordenadas). Usado pelo /staff (mobile).
+ *
+ * Resposta 200: { tarefas: [...] }
+ */
+exports.minhasTarefas = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
+    }
+
+    const agora = new Date();
+    const hoje = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+    const amanha = new Date(hoje.getTime() + 24 * 60 * 60 * 1000);
+
+    const tarefas = await Tarefa.find({
+      utilizador_id: req.user.id,
+      data: { $gte: hoje, $lt: amanha },
+      estado: { $ne: 'cancelada' },
+    })
+      .populate({ path: 'propriedade_id', select: 'nome morada coordenadas' })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return res.status(200).json({ tarefas });
+  } catch (err) {
+    console.error('❌ minhasTarefas:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * GET /api/auth/me/tarefas/:id (requer JWT)
+ *
+ * Devolve o detalhe de uma tarefa do utilizador autenticado.
+ * Valida que a tarefa pertence ao utilizador.
+ *
+ * Resposta 200: { tarefa: { ... } }
+ */
+exports.minhaTarefaDetalhe = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
+    }
+
+    const { id } = req.params;
+    const mongoose = require('mongoose');
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID inválido.' });
+    }
+
+    const tarefa = await Tarefa.findOne({
+      _id: id,
+      utilizador_id: req.user.id,
+    })
+      .populate({ path: 'propriedade_id', select: 'nome morada coordenadas' })
+      .lean();
+
+    if (!tarefa) {
+      return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    return res.status(200).json({ tarefa });
+  } catch (err) {
+    console.error('❌ minhaTarefaDetalhe:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * PATCH /api/auth/me/tarefas/:id/concluir (requer JWT)
+ *
+ * Marca uma tarefa como concluída. Guarda observações e checklist
+ * preenchida pelo staff.
+ *
+ * Body: { observacoes?: string, checklist_concluida?: boolean }
+ *
+ * Resposta 200: { tarefa: { ... } }
+ */
+exports.concluirMinhaTarefa = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
+    }
+
+    const { id } = req.params;
+    const mongoose = require('mongoose');
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID inválido.' });
+    }
+
+    const tarefa = await Tarefa.findOne({
+      _id: id,
+      utilizador_id: req.user.id,
+    });
+
+    if (!tarefa) {
+      return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    if (tarefa.estado === 'concluida') {
+      return res.status(400).json({ erro: 'Tarefa já concluída.' });
+    }
+
+    // Atualiza estado e guarda observações.
+    tarefa.estado = 'concluida';
+    tarefa.concluida_em = new Date();
+    if (req.body?.observacoes !== undefined) {
+      tarefa.observacoes = String(req.body.observacoes || '');
+    }
+
+    await tarefa.save();
+
+    const resp = tarefa.toObject();
+    delete resp.password_hash;
+
+    return res.status(200).json({ tarefa: resp });
+  } catch (err) {
+    console.error('❌ concluirMinhaTarefa:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

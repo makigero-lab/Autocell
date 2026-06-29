@@ -363,6 +363,16 @@ async function processarReservaSmoobu(payload) {
 
   const empresaId = propriedade.empresa_id;
 
+  // Tempo de limpeza: payload.data > content (legacy) > propriedade > default (60).
+  // O Smoobu não envia este campo oficialmente, mas alguns clientes adicionam-no.
+  // NOTA: tem de ser calculado ANTES de determinar o utilizador atribuído,
+  // pois o load balancer usa-o no cálculo da carga total (SLA de 420 min).
+  const tempoLimpeza =
+    content.tempo_limpeza_minutos ??
+    content.cleaning_minutes ??
+    propriedade.tempo_limpeza_minutos ??
+    60;
+
   // Passos 3 a 6 — Determinar o utilizador (best-effort).
   // Se a lógica de atribuição falhar por qualquer motivo, criamos a tarefa
   // mesmo assim, com utilizador_id: null, para o Admin atribuir manualmente.
@@ -377,14 +387,6 @@ async function processarReservaSmoobu(payload) {
     );
     utilizadorAtribuido = null;
   }
-
-  // Tempo de limpeza: payload.data > content (legacy) > propriedade > default (60).
-  // O Smoobu não envia este campo oficialmente, mas alguns clientes adicionam-no.
-  const tempoLimpeza =
-    content.tempo_limpeza_minutos ??
-    content.cleaning_minutes ??
-    propriedade.tempo_limpeza_minutos ??
-    60;
 
   // Passo 7 — Criar a Tarefa (mesmo sem utilizador → null).
   const novaTarefa = await Tarefa.create({

@@ -8,6 +8,8 @@ import {
   Building2,
   Users,
   CalendarDays,
+  ClipboardList,
+  BarChart3,
   Menu,
   X,
   Sparkles,
@@ -17,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { fazerLogout } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface NavItem {
   label: string;
@@ -27,8 +30,10 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Propriedades", href: "/admin/propriedades", icon: Building2 },
+  { label: "Tarefas", href: "/admin/tarefas", icon: ClipboardList },
   { label: "Equipa", href: "/admin/equipa", icon: Users },
   { label: "Calendário de Folgas", href: "/admin/calendario", icon: CalendarDays },
+  { label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
 ];
 
 /**
@@ -102,6 +107,10 @@ export function AdminSidebar() {
         <Brand />
         <NavLinks />
         <div className="mt-auto space-y-2 border-t p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Tema</span>
+            <ThemeToggle />
+          </div>
           <Button
             variant="ghost"
             className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-destructive"

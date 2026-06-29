@@ -85,10 +85,12 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 |-----------------|----------------------------------------------------|-------------------|
 | `/`             | Landing premium — 1 botão 'Entrar na Plataforma' → `/login` | — |
 | `/login`        | **Login** (POST /api/auth/login; redirect por role / `?from=`) | Centrado, premium |
-| `/admin`        | Painel de Administração (Dashboard) — **protegido** (role admin) | Desktop-first |
-| `/admin/propriedades` | **Consome API real** (GET/POST propriedades) | Desktop-first |
-| `/admin/equipa`       | **Consome API real** (GET/POST equipa) | Desktop-first |
-| `/admin/calendario`   | **Consome API real** (GET/POST/DELETE ausências) | Desktop-first |
+| `/admin`        | Painel de Administração (Dashboard com dados reais) — **protegido** (role admin) | Desktop-first |
+| `/admin/propriedades` | **Consome API real** (GET/POST/PATCH propriedades + geocoding) | Desktop-first |
+| `/admin/tarefas`      | Gestão manual de tarefas (criar + atribuir + cancelar) + exportação CSV + paginação | Desktop-first |
+| `/admin/equipa`       | CRUD completo de equipa + folgas + telefone + falta súbita + baixa + paginação | Desktop-first |
+| `/admin/calendario`   | Calendário geral de operações (grelha mensal estilo Google) | Desktop-first |
+| `/admin/relatorios`   | Relatórios/Analytics com gráficos (recharts: linha, barras, pie) | Desktop-first |
 | `/manager`      | Painel do Responsável de Limpezas — **protegido** (role manager) | Desktop-first |
 | `/manager/tarefas`    | Placeholder (Tarefas)                        | Desktop-first |
 | `/manager/equipa`     | Placeholder (Equipa)                         | Desktop-first |
@@ -97,14 +99,16 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 
 ### 3.1 Área Admin (`/admin`)
 
-- **Barra lateral** (`admin-sidebar.tsx`) com 4 itens: **Dashboard**, **Propriedades**, **Equipa**, **Calendário de Folgas**.
+- **Barra lateral** (`admin-sidebar.tsx`) com 6 itens: **Dashboard**, **Propriedades**, **Tarefas**, **Equipa**, **Calendário de Folgas**, **Relatórios**.
   - Desktop (`lg+`): sidebar fixa à esquerda, sempre visível.
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
-  - Item ativo destacado com cor primária (emerald).
-- **Dashboard** (`/admin`): cartões de estatística (Propriedades, Staff ativo, Tarefas hoje, Por atribuir), lista de tarefas do dia e estado da equipa com carga de trabalho.
-- **Propriedades** (`/admin/propriedades`): **ecrã real que consome a API** (ver secção 11).
-- **Equipa** (`/admin/equipa`): **ecrã real que consome a API** (`GET/POST /api/admin/equipa`, ver secção 11).
-- **Calendário de Folgas** (`/admin/calendario`): **ecrã real que consome a API** (`GET/POST/DELETE /api/admin/ausencias`, ver secção 11).
+  - Item ativo destacado com cor primária (dourado). Toggle de tema (claro/escuro) no fundo.
+- **Dashboard** (`/admin`): cartões de estatística em tempo real (Propriedades, Staff ativo, Tarefas hoje, Por atribuir, Concluídas) + estado da equipa com carga de trabalho (`GET /api/admin/dashboard`).
+- **Propriedades** (`/admin/propriedades`): CRUD + toggle ativo/inativo + morada com geocoding automático.
+- **Tarefas** (`/admin/tarefas`): gestão manual (criar + atribuir + cancelar) + botão de exportação CSV + paginação client-side.
+- **Equipa** (`/admin/equipa`): CRUD completo + folgas fixas semanais + telefone + botão Falta Súbita + botão Baixa/Férias + paginação client-side.
+- **Calendário de Folgas** (`/admin/calendario`): grelha mensal estilo Google Calendar com tarefas + ausências + modal de detalhe.
+- **Relatórios** (`/admin/relatorios`): analytics com gráficos recharts — evolução diária (linha), produtividade por funcionário (barras), distribuição por estado (pie) + tabela de carga por propriedade. Filtro de período (7/30/90 dias ou datas custom).
 
 ### 3.2 Área Staff (`/staff`)
 
