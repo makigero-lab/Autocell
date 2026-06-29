@@ -94,9 +94,12 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `DELETE`| `/api/admin/equipa/:id` | Elimina utilizador (soft delete). **Auth:** JWT. |
 | `POST` | `/api/admin/equipa/:id/falta-subita` | Reatribuição de emergência (tarefas do dia). **Auth:** JWT. |
 | `POST` | `/api/admin/equipa/:id/baixa` | Baixa prolongada/férias (redistribui tarefas futuras). **Auth:** JWT. |
-| `GET`  | `/api/admin/ausencias` | Lista ausências. Query: `?futuras=true`. **Auth:** JWT. |
-| `POST` | `/api/admin/ausencias` | Regista ausência. **Auth:** JWT. |
+| `GET`  | `/api/admin/ausencias` | Lista ausências (incl. pendentes para aprovação). Query: `?futuras=true`. **Auth:** JWT. |
+| `POST` | `/api/admin/ausencias` | Regista ausência (admin → estado 'aprovada'). **Auth:** JWT. |
 | `DELETE`| `/api/admin/ausencias/:id` | Elimina ausência. **Auth:** JWT. |
+| `PATCH`| `/api/admin/ausencias/:id/estado` | Aprovar/rejeitar pedido do staff. Body: `{ estado: 'aprovada'\|'rejeitada' }`. Aprovar → redistribui tarefas. **Auth:** JWT. |
+| `GET`  | `/api/staff/ausencias` | Staff vê as SUAS ausências (histórico). **Auth:** JWT. |
+| `POST` | `/api/staff/ausencias` | Staff cria pedido de ausência (sempre 'pendente'). Body: `{ data_inicio, data_fim, tipo, notas? }`. **Auth:** JWT. |
 | `GET`  | `/api/admin/auditoria` | Histórico de ações administrativas. Query: `?limit=`. **Auth:** JWT. |
 | `GET`  | `/api/admin/relatorios/produtividade` | Relatório de produtividade (resumo + por staff/dia/estado/propriedade). Query: `?inicio=&fim=`. **Auth:** JWT. |
 | `GET`  | `/api/admin/webhooks` | Lista logs de webhooks do Smoobu (status + payload + erro). Query: `?status=&limit=`. **Auth:** JWT. |

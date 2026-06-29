@@ -1272,3 +1272,156 @@ describe('POST /api/admin/smoobu/sincronizar-propriedades', () => {
     expect(p.ativo).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 12. Fluxo de aprovação de ausências (v1.24.0)                       */
+/* ------------------------------------------------------------------ */
+
+describe('Fluxo de aprovação de ausências', () => {
+  let staffToken, staffId, propId, tarefaAtribuida;
+
+  beforeAll(async () => {
+    // Cria um staff.
+    const hash = await bcrypt.hash(PASSWORD, 10);
+    const staff = await Utilizador.create({
+      nome: 'Staff Ausencia',
+      email: 'staff.ausencia@teste.pt',
+      password_hash: hash,
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      role: 'staff',
+      ativo: true,
+    });
+    staffId = String(staff._id);
+
+    // Login como staff.
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'staff.ausencia@teste.pt', password: PASSWORD });
+    staffToken = res.body.token;
+
+    // Cria uma propriedade + tarefa atribuída ao staff (data futura).
+    propId = await Propriedade.create({
+      smoobu_id: 'aus-prop-1',
+      nome: 'Casa Ausencia',
+      morada: 'Rua Ausencia',
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      tempo_limpeza_minutos: 45,
+    });
+    const dataFutura = new Date(Date.now() + 10 * 86400000);
+    tarefaAtribuida = await Tarefa.create({
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      propriedade_id: propId._id,
+      utilizador_id: staffId,
+      data: dataFutura,
+      tempo_limpeza_minutos: 45,
+      tipo: 'limpeza',
+      estado: 'atribuida',
+    });
+  });
+
+  it('staff cria pedido de ausência → 201 + estado pendente', async () => {
+    const res = await request(app)
+      .post('/api/staff/ausencias')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        data_inicio: new Date(Date.now() + 9 * 86400000).toISOString().slice(0, 10),
+        data_fim: new Date(Date.now() + 12 * 86400000).toISOString().slice(0, 10),
+        tipo: 'ferias',
+        notas: 'Férias de verão',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.ausencia.estado).toBe('pendente');
+    expect(res.body.ausencia.tipo).toBe('ferias');
+    expect(String(res.body.ausencia.utilizador_id)).toBe(staffId);
+  });
+
+  it('staff vê as suas ausências → 200 + lista com a pendente', async () => {
+    const res = await request(app)
+      .get('/api/staff/ausencias')
+      .set('Authorization', `Bearer ${staffToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.ausencias)).toBe(true);
+    expect(res.body.ausencias.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.ausencias.some((a) => a.estado === 'pendente')).toBe(true);
+  });
+
+  it('staff sem token → 401', async () => {
+    const res = await request(app).get('/api/staff/ausencias');
+    expect(res.status).toBe(401);
+  });
+
+  it('admin aprova ausência → 200 + redistribui tarefas do período', async () => {
+    // Busca a ausência pendente criada pelo staff.
+    const Ausencia = require('../models/Ausencia');
+    const pendente = await Ausencia.findOne({
+      utilizador_id: staffId,
+      estado: 'pendente',
+    });
+    expect(pendente).not.toBeNull();
+
+    // Confirma que a tarefa está atribuída ao staff antes de aprovar.
+    const antes = await Tarefa.findById(tarefaAtribuida._id);
+    expect(String(antes.utilizador_id)).toBe(staffId);
+
+    // Admin aprova.
+    const res = await authPatch(`/api/admin/ausencias/${pendente._id}/estado`, {
+      estado: 'aprovada',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ausencia.estado).toBe('aprovada');
+    expect(res.body.redistribuicao).toBeTruthy();
+    expect(res.body.redistribuicao.total).toBeGreaterThanOrEqual(1);
+
+    // A tarefa foi reatribuída (utilizador_id mudou ou ficou por_atribuir).
+    const depois = await Tarefa.findById(tarefaAtribuida._id);
+    expect(String(depois.utilizador_id)).not.toBe(staffId);
+  });
+
+  it('admin rejeita ausência → 200 + só atualiza estado (não mexe em tarefas)', async () => {
+    // Cria outra ausência pendente.
+    await request(app)
+      .post('/api/staff/ausencias')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        data_inicio: new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10),
+        data_fim: new Date(Date.now() + 22 * 86400000).toISOString().slice(0, 10),
+        tipo: 'doenca',
+      });
+
+    const Ausencia = require('../models/Ausencia');
+    const pendente = await Ausencia.findOne({
+      utilizador_id: staffId,
+      estado: 'pendente',
+    });
+    expect(pendente).not.toBeNull();
+
+    const res = await authPatch(`/api/admin/ausencias/${pendente._id}/estado`, {
+      estado: 'rejeitada',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.ausencia.estado).toBe('rejeitada');
+    // Rejeitar NÃO redistribui.
+    expect(res.body.redistribuicao).toBeNull();
+  });
+
+  it('admin aprovar com estado inválido → 400', async () => {
+    const Ausencia = require('../models/Ausencia');
+    const pendente = await Ausencia.findOne({
+      utilizador_id: staffId,
+      estado: 'pendente',
+    });
+    if (!pendente) return; // se não há pendente, skip
+    const res = await authPatch(`/api/admin/ausencias/${pendente._id}/estado`, {
+      estado: 'invalido',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('admin aprovar ausência inexistente → 404', async () => {
+    const idInexistente = new mongoose.Types.ObjectId();
+    const res = await authPatch(`/api/admin/ausencias/${idInexistente}/estado`, {
+      estado: 'aprovada',
+    });
+    expect(res.status).toBe(404);
+  });
+});

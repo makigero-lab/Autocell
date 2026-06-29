@@ -214,8 +214,11 @@ async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPr
   // v1.16.0: o campo legacy `data` foi removido. Query agora usa apenas
   // data_inicio/data_fim (sobreposição de intervalos).
   // Condição: ausencia.data_inicio <= dia AND ausencia.data_fim >= dia.
+  // v1.24.0: só ausências APROVADAS bloqueiam a atribuição. Pedidos
+  // pendentes ou rejeitados não contam (o staff pode ainda trabalhar).
   const ausentes = await Ausencia.find({
     utilizador_id: { $in: staff.map((s) => s._id) },
+    estado: 'aprovada',
     data_inicio: { $lte: range.start },
     data_fim: { $gte: range.start },
   }).distinct('utilizador_id');
@@ -653,6 +656,7 @@ async function atualizarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw
     if (disponivel) {
       const ausente = await Ausencia.exists({
         utilizador_id: tarefa.utilizador_id,
+        estado: 'aprovada',
         data_inicio: { $lte: novoRange.start },
         data_fim: { $gte: novoRange.start },
       });

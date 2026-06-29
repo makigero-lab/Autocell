@@ -30,6 +30,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const ausenciaRoutes = require('./routes/ausenciaRoutes');
 const relatorioRoutes = require('./routes/relatorioRoutes');
+const staffRoutes = require('./routes/staffRoutes');
 const { iniciarDailyBriefing } = require('./jobs/dailyBriefing');
 
 const app = express();
@@ -98,6 +99,9 @@ app.use('/api/admin/ausencias', ausenciaRoutes);
 
 // Relatórios / Analytics — protegido por auth.
 app.use('/api/admin/relatorios', relatorioRoutes);
+
+// Staff — gestão das próprias ausências (pedidos de férias/doença).
+app.use('/api/staff', staffRoutes);
 
 /* ------------------------------------------------------------------ */
 /* Middleware global de tratamento de erros                            */

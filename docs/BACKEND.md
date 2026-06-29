@@ -661,6 +661,59 @@ Endpoint unificado para alimentar a página de Calendário Visual Avançado. Dev
 
 ---
 
+### 6.11. Fluxo de aprovação de ausências — v1.24.0
+
+#### Modelo `Ausencia` (campos novos)
+
+| Campo | Tipo | Valores | Default |
+|-------|------|---------|---------|
+| `estado` | String | `pendente` \| `aprovada` \| `rejeitada` | `pendente` |
+| `tipo` | String | `ferias` \| `doenca` \| `outro` | `ferias` |
+
+> O enum do `tipo` mudou de `['ferias','folga']` para `['ferias','doenca','outro']`. As "folgas" fixas semanais continuam no campo `dias_folga` do Utilizador.
+
+#### Endpoints do Staff (`/api/staff/ausencias`)
+
+*Protegido por JWT. O staff só gere as SUAS ausências.*
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET`  | `/api/staff/ausencias` | Histórico de ausências do próprio utilizador |
+| `POST` | `/api/staff/ausencias` | Criar pedido de ausência (sempre `estado: 'pendente'`) |
+
+**POST Body:** `{ data_inicio, data_fim, tipo?, notas? }`
+
+O staff **não pode aprovar** os próprios pedidos — só o admin.
+
+#### Endpoint de Aprovação (Admin)
+
+`PATCH /api/admin/ausencias/:id/estado` — aprovar ou rejeitar um pedido do staff.
+
+**Body:** `{ estado: 'aprovada' | 'rejeitada' }`
+
+**Lógica crítica:**
+- **Aprovar** → redistribui automaticamente as tarefas futuras do utilizador no período `[data_inicio, data_fim]` usando o load balancer (`determinarUtilizadorAtribuido`). Tarefas com staff disponível são reatribuídas; as sem staff disponível ficam `por_atribuir`.
+- **Rejeitar** → apenas atualiza o estado (não mexe nas tarefas).
+
+**Resposta 200:**
+```json
+{
+  "mensagem": "Ausência aprovada. 2 tarefa(s) reatribuída(s), 0 órfã(s).",
+  "ausencia": { ... },
+  "redistribuicao": { "total": 2, "reatribuidas": 2, "orfas": 0, "detalhes": [...] }
+}
+```
+
+#### Impacto no webhook (load balancer)
+
+O webhook do Smoobu (e o `atualizarTarefaPorReserva`) agora só consideram ausências com `estado: 'aprovada'` para excluir staff da atribuição. Pedidos pendentes ou rejeitados **não bloqueiam** a atribuição (o staff pode ainda trabalhar).
+
+#### Ações do admin que criam ausências
+
+As ações diretas do admin (falta súbita, baixa prolongada, registo manual) criam ausências com `estado: 'aprovada'` (não precisam de aprovação — o admin já decidiu).
+
+---
+
 ## 7. Deploy no Render
 
 | Definição        | Valor                        |
@@ -716,3 +769,4 @@ Endpoint unificado para alimentar a página de Calendário Visual Avançado. Dev
 | v1.21.0    | 1.21.0 | **Listar propriedades do Smoobu:** novo endpoint `GET /api/admin/smoobu/propriedades` (`smoobuController` → `getPropriedadesSmoobu`) que faz `fetch https://login.smoobu.com/api/apartments` com header `Api-Key` e devolve `{ propriedadesSmoobu: [{ id, name }, ...] }` de forma limpa (só os campos úteis, não vaza dados sensíveis/volumosos do Smoobu). Facilita o mapeamento no fluxo de criação de propriedades — o frontend pode mostrar um dropdown com os apartamentos do Smoobu em vez de o Admin ter de digitar o `smoobu_id` manualmente. Mesmo padrão de robustez do `sincronizarReservas`: valida `SMOOBU_API_KEY` (400), trata erros de fetch/HTTP/JSON (502), aceita variantes da resposta (`body.apartments` ou `body.data.apartments`). 4 novos testes (56 no total): sem token 401, sem API key 400, fetch mockado devolve lista limpa (verifica que só id+name, não vaza other fields, e que o fetch foi chamado com URL+header corretos), erro 401 do Smoobu → 502. |
 | v1.22.0    | 1.22.0 | **Sincronizar propriedades do Smoobu (upsert em massa):** novo endpoint `POST /api/admin/smoobu/sincronizar-propriedades` (`smoobuController` → `sincronizarPropriedades`) que faz `fetch https://login.smoobu.com/api/apartments` e faz upsert de cada apartamento com `$setOnInsert` — **insere só as que não existem**, não altera as existentes (preserva edições manuais do Admin: nome, morada, tempo, coordenadas, ativo). `empresa_id` vem do JWT. Devolve contadores: `totalRecebidas`, `criadas`, `existentes`, `erros`, `detalheErros`. Caso de uso: configuração inicial (importar todas as propriedades de uma vez). O endpoint `PUT /api/admin/propriedades/:id` (`atualizarPropriedade`) **já existia** desde a v1.19.1 (nome, smoobu_id, morada, tempo + re-geocoding) — não foi duplicado. 5 novos testes (61 no total): sem token 401, sem API key 400, cria propriedades novas, idempotente (2x não duplica), preserva edições manuais (propriedade com nome/tempo/ativo editados não é sobreposta). |
 | v1.23.0    | 1.23.0 | **Calendário Visual Avançado — endpoint unificado:** novo endpoint `GET /api/admin/calendario/dados` (`adminController` → `getDadosCalendario`) que devolve tarefas da empresa num intervalo de datas com filtros opcionais (`propriedadeId`, `utilizadorId`, `estado`) + populate de propriedade (`nome`, `morada`, `coordenadas`) e utilizador (`nome`). Diferença para `getTarefas`: não exclui canceladas por defeito (calendário pode mostrá-las a tracejado), aceita `utilizadorId=null` para filtrar tarefas por atribuir, e o populate inclui `morada`+`coordenadas` (para tooltips e futuro mapa de rotas). 8 novos testes (69 no total): sem token 401, sem filtros (inclui canceladas), populate (nome+morada+utilizador), filtro por propriedade, filtro por utilizador, filtro utilizadorId=null (por atribuir), filtro por estado=concluida, combina filtros. Fix de teste existente: o teste do webhook assumia que só havia 1 staff (quebrado pelo `beforeAll` do calendário que cria 2 staff extra) — corrigido para verificar apenas que a tarefa foi atribuída a algum staff ativo (não null), que é o comportamento correto do load balancer. |
+| v1.24.0    | 1.24.0 | **Fluxo de aprovação de ausências:** (1) Modelo `Ausencia` — novo campo `estado` (`pendente`\|`aprovada`\|`rejeitada`, default `pendente`); enum do `tipo` alargado para `ferias`\|`doenca`\|`outro` (as "folgas" fixas semanais continuam em `dias_folga` do Utilizador). (2) **Staff routes** — novo `controllers/staffController.js` + `routes/staffRoutes.js` montado em `/api/staff`: `GET /ausencias` (histórico próprio) + `POST /ausencias` (cria pedido sempre `pendente`; staff não pode auto-aprovar). (3) **Aprovação** — `PATCH /api/admin/ausencias/:id/estado` (`ausenciaController` → `aprovarRejeitarAusencia`): aprovar → redistribui tarefas do período via load balancer (helper `redistribuirTarefasPeriodo` extraído e reutilizável); rejeitar → só atualiza estado. (4) **Webhook** — `determinarUtilizadorAtribuido` e `atualizarTarefaPorReserva` agora só consideram ausências `aprovada` (pendentes/rejeitadas não bloqueiam atribuição). (5) Ações diretas do admin (falta súbita, baixa prolongada, registo manual) criam ausências com `estado: 'aprovada'`. 7 novos testes (76 no total): staff cria pedido (pendente), staff vê suas ausências, staff sem token 401, admin aprova (redistribui — verifica utilizador_id mudou), admin rejeita (não mexe em tarefas), estado inválido 400, ausência inexistente 404. |

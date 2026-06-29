@@ -1166,13 +1166,15 @@ exports.reportarFaltaSubita = async (req, res) => {
     const amanhaInicio = new Date(hojeInicio.getTime() + 24 * 60 * 60 * 1000);
 
     // 2) Regista Ausencia para hoje (ignora erro de duplicado).
+    // v1.24.0: falta súbita é uma ação do admin → estado 'aprovada'.
     try {
       await Ausencia.create({
         utilizador_id: id,
         empresa_id: empresaId,
         data_inicio: hojeInicio,
         data_fim: hojeInicio,
-        tipo: 'folga',
+        tipo: 'outro',
+        estado: 'aprovada',
         notas: 'Falta súbita reportada pelo admin',
       });
     } catch (err) {
@@ -1348,6 +1350,7 @@ exports.registarBaixaProlongada = async (req, res) => {
     }
 
     // 1) Cria a Ausencia (ignora duplicado).
+    // v1.24.0: baixa prolongada é uma ação do admin → estado 'aprovada'.
     try {
       await Ausencia.create({
         utilizador_id: id,
@@ -1355,6 +1358,7 @@ exports.registarBaixaProlongada = async (req, res) => {
         data_inicio: inicio,
         data_fim: fim,
         tipo: tipo || 'ferias',
+        estado: 'aprovada',
         notas: notas ? String(notas).trim() : '',
       });
     } catch (err) {
