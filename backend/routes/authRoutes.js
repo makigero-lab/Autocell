@@ -17,7 +17,7 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const { auth } = require('../middleware/auth');
-const { login, me, meuCalendario } = require('../controllers/authController');
+const { login, me, meuCalendario, minhasTarefas, minhaTarefaDetalhe, concluirMinhaTarefa } = require('../controllers/authController');
 
 /**
  * Limitador de taxa específico para a rota de login.
@@ -53,5 +53,14 @@ router.get('/me', auth, me);
 
 // Calendário pessoal do utilizador — requer JWT.
 router.get('/me/calendario', auth, meuCalendario);
+
+// Tarefas de hoje do utilizador — requer JWT.
+router.get('/me/tarefas', auth, minhasTarefas);
+
+// Detalhe de uma tarefa do utilizador — requer JWT.
+router.get('/me/tarefas/:id', auth, minhaTarefaDetalhe);
+
+// Concluir tarefa — requer JWT.
+router.patch('/me/tarefas/:id/concluir', auth, concluirMinhaTarefa);
 
 module.exports = router;

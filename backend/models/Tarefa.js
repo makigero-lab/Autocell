@@ -54,6 +54,16 @@ const tarefaSchema = new mongoose.Schema(
       enum: ['por_atribuir', 'atribuida', 'em_curso', 'concluida', 'cancelada'],
       default: 'por_atribuir',
     },
+    // Observações preenchidas pelo staff ao concluir a tarefa.
+    observacoes: {
+      type: String,
+      default: '',
+    },
+    // Data em que a tarefa foi concluída (para relatórios).
+    concluida_em: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
