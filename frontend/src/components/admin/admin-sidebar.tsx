@@ -10,6 +10,7 @@ import {
   CalendarDays,
   ClipboardList,
   BarChart3,
+  Webhook,
   Menu,
   X,
   Sparkles,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { label: "Equipa", href: "/admin/equipa", icon: Users },
   { label: "Calendário de Folgas", href: "/admin/calendario", icon: CalendarDays },
   { label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
+  { label: "Webhooks", href: "/admin/webhooks", icon: Webhook },
 ];
 
 /**

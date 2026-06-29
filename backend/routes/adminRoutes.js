@@ -29,6 +29,7 @@ const {
   getDashboard,
   getPropriedades,
   criarPropriedade,
+  atualizarPropriedade,
   alternarEstadoPropriedade,
   getTarefas,
   getEquipa,
@@ -40,6 +41,8 @@ const {
   registarBaixaProlongada,
   exportarTarefasCSV,
   getAuditoria,
+  getWebhooks,
+  reprocessarWebhook,
   setupClienteZero,
 } = require('../controllers/adminController');
 const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
@@ -53,6 +56,7 @@ router.get('/dashboard', auth, getDashboard);
 // Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);
 router.post('/propriedades', auth, criarPropriedade);
+router.put('/propriedades/:id', auth, atualizarPropriedade);
 router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
@@ -84,5 +88,9 @@ router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
 
 // Auditoria.
 router.get('/auditoria', auth, getAuditoria);
+
+// Webhooks — logs do Smoobu (lista + reproccessamento manual).
+router.get('/webhooks', auth, getWebhooks);
+router.post('/webhooks/:id/reprocessar', auth, reprocessarWebhook);
 
 module.exports = router;

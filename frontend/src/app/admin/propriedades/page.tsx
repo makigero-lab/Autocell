@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Building2, Loader2, AlertCircle, RefreshCw, Power } from "lucide-react";
+import { Plus, Building2, Loader2, AlertCircle, RefreshCw, Power, Pencil } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +13,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   adminGet,
   adminPost,
   adminPatch,
+  adminPut,
   type PropriedadeDTO,
 } from "@/lib/api";
 
@@ -112,6 +122,69 @@ export default function PropriedadesPage() {
         prev.map((x) => (x._id === p._id ? { ...x, ativo: p.ativo } : x))
       );
       setErro(e instanceof Error ? e.message : "Erro ao alterar estado.");
+    }
+  }
+
+  // Estado do modal de edição
+  const [editando, setEditando] = useState<PropriedadeDTO | null>(null);
+  const [editForm, setEditForm] = useState({
+    nome: "",
+    smoobu_id: "",
+    morada: "",
+    tempo_limpeza_minutos: "60",
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editErro, setEditErro] = useState<string | null>(null);
+
+  /** Abre o modal de edição com os dados atuais da propriedade. */
+  function abrirEdicao(p: PropriedadeDTO) {
+    setEditando(p);
+    setEditForm({
+      nome: p.nome,
+      smoobu_id: p.smoobu_id,
+      morada: p.morada ?? "",
+      tempo_limpeza_minutos: String(p.tempo_limpeza_minutos ?? 60),
+    });
+    setEditErro(null);
+  }
+
+  /** Submete a edição da propriedade. */
+  async function handleEditar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editando) return;
+    setEditErro(null);
+
+    if (!editForm.nome.trim() || !editForm.smoobu_id.trim() || !editForm.morada.trim()) {
+      setEditErro("Nome, Smoobu ID e Morada são obrigatórios.");
+      return;
+    }
+
+    const tempo = Number(editForm.tempo_limpeza_minutos);
+    if (Number.isNaN(tempo) || tempo < 0) {
+      setEditErro("Tempo de Limpeza deve ser um número maior ou igual a 0.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const res = await adminPut<{ propriedade: PropriedadeDTO }>(
+        `/api/admin/propriedades/${editando._id}`,
+        {
+          nome: editForm.nome.trim(),
+          smoobu_id: editForm.smoobu_id.trim(),
+          morada: editForm.morada.trim(),
+          tempo_limpeza_minutos: tempo,
+        }
+      );
+      // Atualiza a linha na tabela.
+      setPropriedades((prev) =>
+        prev.map((x) => (x._id === editando._id ? res.propriedade : x))
+      );
+      setEditando(null);
+    } catch (e) {
+      setEditErro(e instanceof Error ? e.message : "Erro ao editar propriedade.");
+    } finally {
+      setEditSubmitting(false);
     }
   }
 
@@ -326,6 +399,16 @@ export default function PropriedadesPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
+                            onClick={() => abrirEdicao(p)}
+                            aria-label={`Editar ${p.nome}`}
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
                             onClick={() => handleToggleAtivo(p)}
                             aria-label={p.ativo ? "Desativar" : "Ativar"}
                             title={p.ativo ? "Desativar" : "Ativar"}
@@ -342,6 +425,116 @@ export default function PropriedadesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal de Edição */}
+      <Dialog
+        open={editando !== null}
+        onOpenChange={(o) => !o && setEditando(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle>Editar Propriedade</DialogTitle>
+            <DialogDescription>
+              Atualiza os dados da propriedade. Se mudares a morada, as
+              coordenadas são re-calculadas automaticamente (para o load
+              balancer de rotas).
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setEditando(null)} />
+        </DialogHeader>
+        <form onSubmit={handleEditar}>
+          <DialogContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="edit-nome" className="text-sm font-medium">
+                Nome
+              </label>
+              <Input
+                id="edit-nome"
+                value={editForm.nome}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, nome: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-smoobu" className="text-sm font-medium">
+                Smoobu ID
+              </label>
+              <Input
+                id="edit-smoobu"
+                value={editForm.smoobu_id}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, smoobu_id: e.target.value }))
+                }
+                required
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tem de corresponder ao <code>apartment.id</code> do Smoobu
+                (é assim que o webhook cruza a reserva com a propriedade).
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-morada" className="text-sm font-medium">
+                Morada
+              </label>
+              <Input
+                id="edit-morada"
+                value={editForm.morada}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, morada: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="edit-tempo"
+                className="text-sm font-medium"
+              >
+                Tempo de Limpeza (minutos)
+              </label>
+              <Input
+                id="edit-tempo"
+                type="number"
+                min={0}
+                value={editForm.tempo_limpeza_minutos}
+                onChange={(e) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    tempo_limpeza_minutos: e.target.value,
+                  }))
+                }
+                required
+              />
+            </div>
+            {editErro && (
+              <p className="text-sm text-destructive">{editErro}</p>
+            )}
+          </DialogContent>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditando(null)}
+              disabled={editSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={editSubmitting}>
+              {editSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  A guardar…
+                </>
+              ) : (
+                "Guardar alterações"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
     </div>
   );
 }

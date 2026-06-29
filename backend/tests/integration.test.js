@@ -251,6 +251,70 @@ describe('Propriedades (CRUD)', () => {
     const res = await authPatch(`/api/admin/propriedades/${idInexistente}/estado`, {});
     expect(res.status).toBe(404);
   });
+
+  it('PUT /api/admin/propriedades/:id → 200 (atualiza nome e tempo)', async () => {
+    // Cria uma propriedade para editar.
+    const criada = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-1',
+      nome: 'Nome Inicial',
+      morada: 'Rua Inicial 1, Lisboa',
+      tempo_limpeza_minutos: 60,
+    });
+    expect(criada.status).toBe(201);
+
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criada.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nome: 'Nome Editado', tempo_limpeza_minutos: 90 });
+    expect(res.status).toBe(200);
+    expect(res.body.propriedade.nome).toBe('Nome Editado');
+    expect(res.body.propriedade.tempo_limpeza_minutos).toBe(90);
+    // smoobu_id e morada não mudaram.
+    expect(res.body.propriedade.smoobu_id).toBe('prop-edit-1');
+  });
+
+  it('PUT com smoobu_id duplicado (de outra propriedade) → 409', async () => {
+    // Cria duas propriedades.
+    await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-2',
+      nome: 'A',
+      morada: 'Rua A',
+    });
+    const criadaB = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-3',
+      nome: 'B',
+      morada: 'Rua B',
+    });
+
+    // Tenta mudar B para o smoobu_id de A → 409.
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criadaB.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ smoobu_id: 'prop-edit-2' });
+    expect(res.status).toBe(409);
+  });
+
+  it('PUT com id inexistente → 404', async () => {
+    const idInexistente = new mongoose.Types.ObjectId();
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${idInexistente}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nome: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT sem campos no body → 400', async () => {
+    const criada = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-4',
+      nome: 'C',
+      morada: 'Rua C',
+    });
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criada.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -347,6 +411,220 @@ describe('POST /webhooks/smoobu (load balancer)', () => {
 
     // Restaura o estado ativo para testes seguintes.
     await Propriedade.updateOne({ smoobu_id: '200' }, { $set: { ativo: true } });
+  });
+
+  it('webhook duplicado (mesmo reservaId) → não cria tarefa duplicada (idempotência)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const payload = {
+      action: 'newReservation',
+      data: { id: 999, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    };
+
+    // Primeiro envio → cria tarefa.
+    await request(app).post('/webhooks/smoobu').send(payload);
+    await esperar(400);
+    const tarefas1 = await Tarefa.find({ smoobu_reserva_id: '999' });
+    expect(tarefas1.length).toBe(1);
+
+    // Segundo envio (retry do Smoobu) → NÃO cria duplicado.
+    await request(app).post('/webhooks/smoobu').send(payload);
+    await esperar(400);
+    const tarefas2 = await Tarefa.find({ smoobu_reserva_id: '999' });
+    expect(tarefas2.length).toBe(1);
+  });
+
+  it('action desconhecida → 200 mas não cria tarefa (log processado)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const res = await request(app).post('/webhooks/smoobu').send({
+      action: 'pingTest',
+      data: { id: 888, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    expect(res.status).toBe(200);
+    await esperar(400);
+
+    // Não cria tarefa.
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '888' });
+    expect(tarefa).toBeNull();
+
+    // O log fica 'processado' (não é erro — apenas não há nada a fazer).
+    const log = await WebhookLog.findOne({ 'payload.data.id': 888 });
+    expect(log).not.toBeNull();
+    expect(log.status).toBe('processado');
+  });
+
+  it('cancellation → cancela a tarefa existente', async () => {
+    // 1) Cria a tarefa com newReservation.
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(tarefa).not.toBeNull();
+    expect(tarefa.estado).not.toBe('cancelada');
+
+    // 2) Envia cancellation → tarefa fica cancelada.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const cancelada = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(cancelada.estado).toBe('cancelada');
+  });
+
+  it('cancellation idempotente → cancelar 2x mantém cancelada', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    // Cria primeiro (o beforeEach limpa as tarefas entre testes).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    // Cancela 2x.
+    for (let i = 0; i < 2; i++) {
+      await request(app).post('/webhooks/smoobu').send({
+        action: 'cancellation',
+        data: { id: 1111, arrival: amanha, apartment: { id: 200, name: 'X' } },
+      });
+      await esperar(300);
+    }
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '1111' });
+    expect(tarefa.estado).toBe('cancelada');
+  });
+
+  it('cancellation de reserva sem tarefa → sem erro', async () => {
+    const res = await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 999999, arrival: '2026-08-01', apartment: { id: 200, name: 'X' } },
+    });
+    expect(res.status).toBe(200);
+    await esperar(300);
+    // Nenhuma tarefa com este reservaId.
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '999999' });
+    expect(tarefa).toBeNull();
+  });
+
+  it('updateReservation → atualiza a data da tarefa existente', async () => {
+    // 1) Cria tarefa com check-in amanhã.
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 2222, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '2222' });
+    const dataOriginal = new Date(tarefa.data).getTime();
+
+    // 2) Envia update com check-in daqui a 5 dias.
+    const daqui5dias = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'updateReservation',
+      data: { id: 2222, arrival: daqui5dias, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+
+    const atualizada = await Tarefa.findOne({ smoobu_reserva_id: '2222' });
+    // A data mudou.
+    expect(new Date(atualizada.data).getTime()).not.toBe(dataOriginal);
+    // Não criou duplicado.
+    const count = await Tarefa.countDocuments({ smoobu_reserva_id: '2222' });
+    expect(count).toBe(1);
+  });
+
+  it('updateReservation sem tarefa existente → cria a tarefa (fallback)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'updateReservation',
+      data: { id: 3333, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '3333' });
+    expect(tarefa).not.toBeNull(); // criou por fallback
+  });
+
+  it('newReservation de reserva anteriormente cancelada → re-activa', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    // 1) Cria.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    // 2) Cancela.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'cancellation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const cancelada = await Tarefa.findOne({ smoobu_reserva_id: '4444' });
+    expect(cancelada.estado).toBe('cancelada');
+    // 3) Re-cria (newReservation com mesmo ID) → re-activa.
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4444, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    await esperar(400);
+    const reactivada = await Tarefa.findOne({ smoobu_reserva_id: '4444' });
+    expect(reactivada.estado).not.toBe('cancelada');
+    // Não criou duplicado.
+    const count = await Tarefa.countDocuments({ smoobu_reserva_id: '4444' });
+    expect(count).toBe(1);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 6b. Admin — Webhooks (logs)                                        */
+/* ------------------------------------------------------------------ */
+
+describe('GET /api/admin/webhooks', () => {
+  it('sem token → 401', async () => {
+    const res = await request(app).get('/api/admin/webhooks');
+    expect(res.status).toBe(401);
+  });
+
+  it('com token → 200 + lista de logs + total', async () => {
+    const res = await authGet('/api/admin/webhooks');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.webhooks)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    // Os webhooks enviados nos testes anteriores devem aparecer.
+    expect(res.body.total).toBeGreaterThan(0);
+  });
+
+  it('filtro por status=erro → só devolve logs com erro', async () => {
+    // Força um webhook que vai falhar (propriedade inexistente).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4040, arrival: '2026-08-01', apartment: { id: 999999, name: 'X' } },
+    });
+    await esperar(400);
+
+    const res = await authGet('/api/admin/webhooks?status=erro');
+    expect(res.status).toBe(200);
+    expect(res.body.webhooks.length).toBeGreaterThan(0);
+    expect(res.body.webhooks.every((w) => w.status === 'erro')).toBe(true);
+  });
+});
+
+describe('POST /api/admin/webhooks/:id/reprocessar', () => {
+  it('webhook com erro (propriedade inexistente) → reprocessar mantém erro', async () => {
+    // Cria um webhook que falhou (propriedade não existe).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 5050, arrival: '2026-08-01', apartment: { id: 888888, name: 'X' } },
+    });
+    await esperar(400);
+
+    const logErro = await WebhookLog.findOne({ 'payload.data.id': 5050 });
+    expect(logErro).not.toBeNull();
+    expect(logErro.status).toBe('erro');
+
+    // Reproccessa → continua a falhar (propriedade ainda não existe).
+    const res = await authPost(`/api/admin/webhooks/${logErro._id}/reprocessar`, {});
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('erro');
   });
 });
 
