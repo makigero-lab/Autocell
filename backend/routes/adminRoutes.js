@@ -38,6 +38,7 @@ const {
   eliminarMembroEquipa,
   reportarFaltaSubita,
   registarBaixaProlongada,
+  exportarTarefasCSV,
   getAuditoria,
   setupClienteZero,
 } = require('../controllers/adminController');
@@ -56,6 +57,9 @@ router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
 router.get('/tarefas', auth, getTarefas);
+
+// Exportação CSV de tarefas.
+router.get('/tarefas/export', auth, exportarTarefasCSV);
 
 // Reportar atraso numa tarefa.
 router.post('/tarefas/:id/atraso', auth, reportarAtrasoTarefa);

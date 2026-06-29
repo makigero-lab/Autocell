@@ -1209,6 +1209,61 @@ exports.registarBaixaProlongada = async (req, res) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Exportação CSV                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/tarefas/export?inicio=YYYY-MM-DD&fim=YYYY-MM-DD
+ * Exporta tarefas em formato CSV (para Excel/Sheets).
+ *
+ * Resposta 200: text/csv (download direto)
+ */
+exports.exportarTarefasCSV = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { inicio, fim } = req.query;
+    const filtro = { empresa_id: empresaId, estado: { $ne: 'cancelada' } };
+    if (inicio || fim) {
+      const dataFiltro = {};
+      if (inicio) {
+        const d = new Date(inicio);
+        if (!isNaN(d.getTime())) dataFiltro.$gte = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      }
+      if (fim) {
+        const d = new Date(fim);
+        if (!isNaN(d.getTime())) dataFiltro.$lt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + 86400000);
+      }
+      if (Object.keys(dataFiltro).length > 0) filtro.data = dataFiltro;
+    }
+
+    const tarefas = await Tarefa.find(filtro)
+      .populate({ path: 'propriedade_id', select: 'nome' })
+      .populate({ path: 'utilizador_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    // Cabeçalho CSV.
+    const header = 'Data,Propriedade,Funcionario,Tipo,Estado,Tempo Limpeza (min),Observacoes\n';
+    const linhas = tarefas.map((t) => {
+      const data = new Date(t.data).toLocaleDateString('pt-PT');
+      const prop = (t.propriedade_id?.nome || '').replace(/,/g, ';');
+      const func = (t.utilizador_id?.nome || 'Por atribuir').replace(/,/g, ';');
+      const obs = (t.observacoes || '').replace(/[\n\r,]/g, ' ');
+      return `${data},${prop},${func},${t.tipo},${t.estado},${t.tempo_limpeza_minutos},${obs}`;
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="tarefas.csv"');
+    return res.status(200).send(header + linhas);
+  } catch (err) {
+    console.error('❌ exportarTarefasCSV:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
 /* Auditoria                                                           */
 /* ------------------------------------------------------------------ */
 

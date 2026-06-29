@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { fazerLogout } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface NavItem {
   label: string;
@@ -100,6 +101,10 @@ export function ManagerSidebar() {
         <Brand />
         <NavLinks />
         <div className="mt-auto space-y-2 border-t p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Tema</span>
+            <ThemeToggle />
+          </div>
           <Button
             variant="ghost"
             className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-destructive"
