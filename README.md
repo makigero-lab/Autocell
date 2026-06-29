@@ -102,6 +102,7 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `POST` | `/api/admin/webhooks/:id/reprocessar` | Reproccessa webhook que falhou (reutiliza payload guardado, idempotente). **Auth:** JWT. |
 | `POST` | `/api/admin/smoobu/sincronizar` | Sincroniza reservas futuras do Smoobu via REST API (pull). Idempotente. Requer `SMOOBU_API_KEY`. **Auth:** JWT. |
 | `GET`  | `/api/admin/smoobu/propriedades` | Lista apartamentos do Smoobu (para dropdown no fluxo de criação). Requer `SMOOBU_API_KEY`. **Auth:** JWT. |
+| `POST` | `/api/admin/smoobu/sincronizar-propriedades` | Importa apartamentos do Smoobu em massa (upsert `$setOnInsert` — não altera existentes). Requer `SMOOBU_API_KEY`. **Auth:** JWT. |
 | `GET`  | `/api/admin/setup` | Bootstrap do "Cliente Zero" (Empresa + Admin + Manager + Staff + Propriedade de teste). Idempotente. **PÚBLICO.** |
 
 > Detalhes completos da lógica de atribuição (regras de negócio) em [`docs/BACKEND.md`](docs/BACKEND.md#32-lógica-central--atribuição-de-tarefas-webhook-smoobu).

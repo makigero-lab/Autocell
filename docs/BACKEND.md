@@ -604,6 +604,35 @@ Vai buscar a lista de apartamentos ao Smoobu (endpoint oficial `/api/apartments`
 
 ---
 
+### 6.9. Sincronizar propriedades do Smoobu (upsert em massa) — v1.22.0
+
+*Protegido por JWT (middleware `auth`).*
+
+#### `POST /api/admin/smoobu/sincronizar-propriedades`
+
+Importa em massa os apartamentos do Smoobu para a coleção `Propriedade`. Usa upsert com `$setOnInsert`: **insere apenas as propriedades que ainda não existem** (por `smoobu_id`). As propriedades já existentes **não são alteradas** — preserva edições manuais do Admin (nome, morada, tempo de limpeza, coordenadas, ativo).
+
+Caso de uso: configuração inicial — em vez de criar cada propriedade à mão, o Admin sincroniza todas de uma vez e depois edita só as que precisam de ajustes (morada, tempo de limpeza).
+
+**Requer:** `SMOOBU_API_KEY`. O `empresa_id` vem do JWT.
+
+**Resposta 200:**
+```json
+{
+  "totalRecebidas": 20,
+  "criadas": 15,
+  "existentes": 5,
+  "erros": 0,
+  "detalheErros": []
+}
+```
+
+**Erros:** `400` (API key em falta), `502` (erro no fetch ao Smoobu).
+
+> **Nota sobre o `atualizarPropriedade`:** o endpoint `PUT /api/admin/propriedades/:id` já existe desde a v1.19.1 — permite editar `nome`, `smoobu_id`, `morada`, `tempo_limpeza_minutos` (com re-geocoding automático se a morada mudar). Não foi duplicado nesta versão.
+
+---
+
 ## 7. Deploy no Render
 
 | Definição        | Valor                        |
@@ -657,3 +686,4 @@ Vai buscar a lista de apartamentos ao Smoobu (endpoint oficial `/api/apartments`
 | v1.20.0    | 1.20.0 | **Sincronização em massa do Smoobu (REST API pull):** novo endpoint `POST /api/admin/smoobu/sincronizar` (`controllers/smoobuController.js` → `sincronizarReservas`) que vai buscar todas as reservas **futuras** (a partir de hoje) ao Smoobu via REST API (`fetch https://login.smoobu.com/api/reservations?from=YYYY-MM-DD` com header `Api-Key`) e cria as tarefas correspondentes reutilizando `_processarReservaSmoobu` (idempotente — não cria duplicados). Cada reserva é mapeada do formato REST API para o formato do webhook e processada individualmente com try/catch (se uma falhar, ex: propriedade inexistente, as outras continuam). Devolve contadores: `totalRecebidas`, `importadas` (criadas + existentes), `criadas`, `existentes`, `erros`, `detalheErros`. Requer variável de ambiente `SMOOBU_API_KEY` (documentada em `.env.example` + topo do `server.js`); sem ela → `400`. Erros de fetch/timeout/JSON → `502`. Reutiliza a função já exportada `_processarReservaSmoobu` (sem duplicar lógica). 6 novos testes (51 no total) com mock de `global.fetch`: sem token 401, sem API key 400, contadores corretos, idempotência (2x não duplica), erro 500 do Smoobu → 502, reserva com propriedade inexistente → erro isolado. |
 | v1.20.1    | 1.20.1 | **Fix 500 no toggle de propriedades + PWA:** (1) Bug crítico — `PATCH /api/admin/propriedades/:id/estado` dava 500 em propriedades legacy sem `morada` porque `findOne` + `save()` re-valida o documento inteiro. Corrigido com `findOneAndUpdate` + `$set` (não re-valida). Teste de regressão: propriedade inserida sem morada → toggle 200. (2) PWA — meta `mobile-web-app-capable` adicionada (apple-* deprecated). (3) Ícones 1x1 placeholder substituídos por ícones reais 192/512/180 (gerados com image-generation + sharp, fundo dourado #B8860B). |
 | v1.21.0    | 1.21.0 | **Listar propriedades do Smoobu:** novo endpoint `GET /api/admin/smoobu/propriedades` (`smoobuController` → `getPropriedadesSmoobu`) que faz `fetch https://login.smoobu.com/api/apartments` com header `Api-Key` e devolve `{ propriedadesSmoobu: [{ id, name }, ...] }` de forma limpa (só os campos úteis, não vaza dados sensíveis/volumosos do Smoobu). Facilita o mapeamento no fluxo de criação de propriedades — o frontend pode mostrar um dropdown com os apartamentos do Smoobu em vez de o Admin ter de digitar o `smoobu_id` manualmente. Mesmo padrão de robustez do `sincronizarReservas`: valida `SMOOBU_API_KEY` (400), trata erros de fetch/HTTP/JSON (502), aceita variantes da resposta (`body.apartments` ou `body.data.apartments`). 4 novos testes (56 no total): sem token 401, sem API key 400, fetch mockado devolve lista limpa (verifica que só id+name, não vaza other fields, e que o fetch foi chamado com URL+header corretos), erro 401 do Smoobu → 502. |
+| v1.22.0    | 1.22.0 | **Sincronizar propriedades do Smoobu (upsert em massa):** novo endpoint `POST /api/admin/smoobu/sincronizar-propriedades` (`smoobuController` → `sincronizarPropriedades`) que faz `fetch https://login.smoobu.com/api/apartments` e faz upsert de cada apartamento com `$setOnInsert` — **insere só as que não existem**, não altera as existentes (preserva edições manuais do Admin: nome, morada, tempo, coordenadas, ativo). `empresa_id` vem do JWT. Devolve contadores: `totalRecebidas`, `criadas`, `existentes`, `erros`, `detalheErros`. Caso de uso: configuração inicial (importar todas as propriedades de uma vez). O endpoint `PUT /api/admin/propriedades/:id` (`atualizarPropriedade`) **já existia** desde a v1.19.1 (nome, smoobu_id, morada, tempo + re-geocoding) — não foi duplicado. 5 novos testes (61 no total): sem token 401, sem API key 400, cria propriedades novas, idempotente (2x não duplica), preserva edições manuais (propriedade com nome/tempo/ativo editados não é sobreposta). |

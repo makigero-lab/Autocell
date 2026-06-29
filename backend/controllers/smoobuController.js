@@ -19,6 +19,7 @@
  */
 
 const Tarefa = require('../models/Tarefa');
+const Propriedade = require('../models/Propriedade');
 
 /**
  * POST /api/admin/smoobu/sincronizar
@@ -298,4 +299,160 @@ exports.getPropriedadesSmoobu = async (req, res) => {
   }));
 
   return res.status(200).json({ propriedadesSmoobu });
+};
+
+/* ------------------------------------------------------------------ */
+/* Sincronizar propriedades do Smoobu (upsert)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/smoobu/sincronizar-propriedades
+ *
+ * Importa em massa os apartamentos do Smoobu para a coleção Propriedade.
+ * Usa upsert com `$setOnInsert`: insere APENAS as propriedades que ainda
+ * não existem (por `smoobu_id`). As propriedades já existentes NÃO são
+ * alteradas — preserva edições manuais do Admin (nome, morada, tempo de
+ * limpeza, coordenadas, ativo).
+ *
+ * Isto é útil na configuração inicial: em vez de criar cada propriedade à
+ * mão, o Admin sincroniza todas de uma vez e depois edita só as que precisam
+ * de ajustes (morada, tempo de limpeza).
+ *
+ * Requer: variável de ambiente SMOOBU_API_KEY.
+ *
+ * Resposta 200:
+ *   {
+ *     totalRecebidas: number,
+ *     criadas: number,       // novas (inseridas)
+ *     existentes: number,    // já existiam (não mexidas)
+ *     erros: number,
+ *     detalheErros: [{ smoobuId, erro }]
+ *   }
+ *
+ * Erros:
+ *   400 — SMOOBU_API_KEY não configurada
+ *   502 — erro no fetch ao Smoobu (timeout, 4xx/5xx, JSON inválido)
+ *   500 — erro interno
+ */
+exports.sincronizarPropriedades = async (req, res) => {
+  const apiKey = process.env.SMOOBU_API_KEY;
+  if (!apiKey || !apiKey.trim()) {
+    return res.status(400).json({
+      erro:
+        'SMOOBU_API_KEY não configurada. Define-a nas variáveis de ambiente do backend.',
+    });
+  }
+
+  // empresa_id vem do JWT (injetado pelo middleware auth).
+  const empresaId = req.user && req.user.empresa_id;
+  if (!empresaId) {
+    return res.status(400).json({ erro: 'empresa_id em falta no token.' });
+  }
+
+  // Fetch ao Smoobu (mesmo endpoint do getPropriedadesSmoobu).
+  let respostaSmoobu;
+  try {
+    respostaSmoobu = await fetch('https://login.smoobu.com/api/apartments', {
+      method: 'GET',
+      headers: {
+        'Api-Key': apiKey.trim(),
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    console.error('❌ sincronizarPropriedades: fetch falhou:', err.message);
+    return res.status(502).json({
+      erro: 'Não foi possível ligar ao Smoobu.',
+      detalhe: err.message,
+    });
+  }
+
+  if (!respostaSmoobu.ok) {
+    const texto = await respostaSmoobu.text().catch(() => '');
+    console.error(
+      `❌ sincronizarPropriedades: Smoobu devolveu ${respostaSmoobu.status} ${respostaSmoobu.statusText}`
+    );
+    return res.status(502).json({
+      erro: `Smoobu devolveu erro ${respostaSmoobu.status}.`,
+      detalhe: texto.slice(0, 500) || respostaSmoobu.statusText,
+    });
+  }
+
+  let body;
+  try {
+    body = await respostaSmoobu.json();
+  } catch (err) {
+    console.error('❌ sincronizarPropriedades: JSON inválido:', err.message);
+    return res.status(502).json({
+      erro: 'Resposta do Smoobu não é JSON válido.',
+      detalhe: err.message,
+    });
+  }
+
+  const apartments =
+    body?.apartments ?? body?.data?.apartments ?? (Array.isArray(body) ? body : []);
+
+  if (!Array.isArray(apartments)) {
+    return res.status(502).json({
+      erro: 'Resposta do Smoobu não contém array "apartments".',
+      detalhe: JSON.stringify(body).slice(0, 500),
+    });
+  }
+
+  // Upsert de cada apartamento. $setOnInsert garante que só escreve na
+  // criação — propriedades existentes não são tocadas (preserva edições).
+  let criadas = 0;
+  let existentes = 0;
+  let erros = 0;
+  const detalheErros = [];
+
+  for (const apt of apartments) {
+    const smoobuId = apt?.id != null ? String(apt.id) : null;
+    try {
+      if (!smoobuId) {
+        throw new Error('Apartamento sem id.');
+      }
+
+      const resultado = await Propriedade.updateOne(
+        { smoobu_id: smoobuId },
+        {
+          $setOnInsert: {
+            nome: apt.name || `Propriedade ${smoobuId}`,
+            empresa_id: empresaId,
+            tempo_limpeza_minutos: 45,
+          },
+        },
+        { upsert: true }
+      );
+
+      // upsertedCount > 0 → nova; modifiedCount/existing → já existia.
+      if (resultado.upsertedCount > 0) {
+        criadas++;
+      } else {
+        existentes++;
+      }
+    } catch (err) {
+      erros++;
+      detalheErros.push({ smoobuId, erro: err.message });
+      console.error(
+        `⚠️  sincronizarPropriedades: apartamento ${smoobuId} falhou:`,
+        err.message
+      );
+      // Continua para o próximo.
+    }
+  }
+
+  console.log(
+    `✅ sincronizarPropriedades: ${apartments.length} recebidas, ${criadas} criadas, ` +
+      `${existentes} já existiam, ${erros} com erro.`
+  );
+
+  return res.status(200).json({
+    totalRecebidas: apartments.length,
+    criadas,
+    existentes,
+    erros,
+    detalheErros,
+  });
 };

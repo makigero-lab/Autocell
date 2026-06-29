@@ -958,3 +958,140 @@ describe('GET /api/admin/smoobu/propriedades', () => {
     expect(res.body.erro).toMatch(/401/);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 11. Smoobu — sincronizar propriedades (upsert em massa)             */
+/* ------------------------------------------------------------------ */
+
+describe('POST /api/admin/smoobu/sincronizar-propriedades', () => {
+  const Propriedade = require('../models/Propriedade');
+  let apiKeyOriginal;
+
+  beforeEach(async () => {
+    apiKeyOriginal = process.env.SMOOBU_API_KEY;
+    // Limpa propriedades de teste anteriores.
+    await Propriedade.deleteMany({ smoobu_id: { $in: ['sync-1', 'sync-2'] } });
+  });
+
+  afterEach(() => {
+    if (apiKeyOriginal === undefined) {
+      delete process.env.SMOOBU_API_KEY;
+    } else {
+      process.env.SMOOBU_API_KEY = apiKeyOriginal;
+    }
+    if (global.fetch && global.fetch.__isMock) {
+      global.fetch.mockRestore();
+      delete global.fetch.__isMock;
+    }
+  });
+
+  it('sem token → 401', async () => {
+    const res = await request(app).post('/api/admin/smoobu/sincronizar-propriedades');
+    expect(res.status).toBe(401);
+  });
+
+  it('sem SMOOBU_API_KEY configurada → 400', async () => {
+    delete process.env.SMOOBU_API_KEY;
+    const res = await authPost('/api/admin/smoobu/sincronizar-propriedades', {});
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toMatch(/SMOOBU_API_KEY/);
+  });
+
+  it('com API key + fetch mockado → 200 + cria propriedades novas', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        apartments: [
+          { id: 'sync-1', name: 'Casa A' },
+          { id: 'sync-2', name: 'Casa B' },
+        ],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authPost('/api/admin/smoobu/sincronizar-propriedades', {});
+    expect(res.status).toBe(200);
+    expect(res.body.totalRecebidas).toBe(2);
+    expect(res.body.criadas).toBe(2);
+    expect(res.body.existentes).toBe(0);
+    expect(res.body.erros).toBe(0);
+
+    // Confirma que as propriedades foram criadas na BD.
+    const p1 = await Propriedade.findOne({ smoobu_id: 'sync-1' });
+    const p2 = await Propriedade.findOne({ smoobu_id: 'sync-2' });
+    expect(p1).not.toBeNull();
+    expect(p1.nome).toBe('Casa A');
+    expect(p1.tempo_limpeza_minutos).toBe(45);
+    expect(p2.nome).toBe('Casa B');
+  });
+
+  it('idempotente — sincronizar 2x não duplica nem altera existentes', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        apartments: [{ id: 'sync-1', name: 'Casa A' }],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    // 1ª sincronização → cria.
+    const res1 = await authPost('/api/admin/smoobu/sincronizar-propriedades', {});
+    expect(res1.body.criadas).toBe(1);
+    expect(res1.body.existentes).toBe(0);
+
+    // 2ª sincronização → já existe (não duplica).
+    const res2 = await authPost('/api/admin/smoobu/sincronizar-propriedades', {});
+    expect(res2.body.criadas).toBe(0);
+    expect(res2.body.existentes).toBe(1);
+
+    // Só 1 documento na BD.
+    const count = await Propriedade.countDocuments({ smoobu_id: 'sync-1' });
+    expect(count).toBe(1);
+  });
+
+  it('preserva edições manuais — não altera propriedade existente', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+
+    // Cria uma propriedade com nome editado (simula edição manual do Admin).
+    await Propriedade.create({
+      smoobu_id: 'sync-1',
+      nome: 'Nome Editado pelo Admin',
+      morada: 'Rua Manual',
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      tempo_limpeza_minutos: 120, // editado
+      ativo: false, // editado
+    });
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        apartments: [{ id: 'sync-1', name: 'Nome Original Smoobu' }],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authPost('/api/admin/smoobu/sincronizar-propriedades', {});
+    expect(res.status).toBe(200);
+    expect(res.body.existentes).toBe(1);
+    expect(res.body.criadas).toBe(0);
+
+    // A propriedade mantém os valores editados (não foi sobreposta).
+    const p = await Propriedade.findOne({ smoobu_id: 'sync-1' });
+    expect(p.nome).toBe('Nome Editado pelo Admin');
+    expect(p.tempo_limpeza_minutos).toBe(120);
+    expect(p.ativo).toBe(false);
+  });
+});
