@@ -89,6 +89,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 | `/admin/propriedades` | **Consome API real** (GET/POST/PATCH propriedades + geocoding) | Desktop-first |
 | `/admin/tarefas`      | Gestão manual de tarefas (criar + atribuir + cancelar) + exportação CSV + paginação | Desktop-first |
 | `/admin/equipa`       | CRUD completo de equipa + folgas + telefone + falta súbita + baixa + paginação | Desktop-first |
+| `/admin/aprovacoes`   | Pedidos de Férias (Centro de Aprovações RH): tabela pendentes + Aprovar/Rejeitar | Desktop-first |
 | `/admin/calendario`   | Calendário geral de operações (grelha mensal estilo Google) | Desktop-first |
 | `/admin/calendario-operacional` | Calendário operacional avançado (filtros + navegação meses + cartões coloridos por estado + modal com reatribuição rápida) | Desktop-first |
 | `/admin/relatorios`   | Relatórios/Analytics com gráficos (recharts: linha, barras, pie) | Desktop-first |
@@ -102,7 +103,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 
 ### 3.1 Área Admin (`/admin`)
 
-- **Barra lateral** (`admin-sidebar.tsx`) com 8 itens: **Dashboard**, **Propriedades**, **Tarefas**, **Equipa**, **Calendário Operacional**, **Calendário de Folgas**, **Relatórios**, **Webhooks**.
+- **Barra lateral** (`admin-sidebar.tsx`) com 9 itens: **Dashboard**, **Propriedades**, **Tarefas**, **Equipa**, **Pedidos de Férias**, **Calendário Operacional**, **Calendário de Folgas**, **Relatórios**, **Webhooks**.
   - Desktop (`lg+`): sidebar fixa à esquerda, sempre visível.
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (dourado). Toggle de tema (claro/escuro) no fundo.
@@ -110,6 +111,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 - **Propriedades** (`/admin/propriedades`): CRUD completo (criar + **editar** + toggle ativo/inativo) + morada com geocoding automático (re-geocoding ao editar). Modal de edição com Nome, Morada e Tempo de Limpeza (Smoobu ID **read-only**). Formulário de criação tem **dropdown de apartamentos do Smoobu** (carregado via `GET /api/admin/smoobu/propriedades`) — ao escolher, o `smoobu_id` e o `nome` são preenchidos automaticamente (fallback manual se a API key não estiver configurada). Botão **"Sincronizar Smoobu"** no cabeçalho que importa todos os apartamentos do Smoobu de uma vez (`POST /api/admin/smoobu/sincronizar-propriedades`) — upsert que não altera as propriedades já existentes (preserva edições manuais), mostra feedback de sucesso com contadores e atualiza a tabela.
 - **Tarefas** (`/admin/tarefas`): gestão manual (criar + atribuir + cancelar) + botão de exportação CSV + paginação client-side. Botão **"Sincronizar Smoobu"** (ícone Download) que faz pull das reservas futuras via REST API (`POST /api/admin/smoobu/sincronizar`) — idempotente, mostra feedback de sucesso/erro e atualiza a grelha.
 - **Equipa** (`/admin/equipa`): CRUD completo + folgas fixas semanais + telefone + botão Falta Súbita + botão Baixa/Férias + paginação client-side.
+- **Pedidos de Férias** (`/admin/aprovacoes`): Centro de Aprovações de RH — tabela de pedidos pendentes com Nome do Funcionário, Tipo, Datas, Notas + botões **Aprovar** (verde, redistribui tarefas automaticamente) e **Rejeitar** (vermelho). Toast de sucesso com contadores de redistribuição. Responsive (tabela desktop + cards mobile). Consome `GET /api/admin/ausencias?estado=pendente` + `PATCH /api/admin/ausencias/:id/estado`.
 - **Calendário de Folgas** (`/admin/calendario`): grelha mensal estilo Google Calendar com tarefas + ausências + modal de detalhe.
 - **Calendário Operacional** (`/admin/calendario-operacional`): vista mensal avançada com filtros (propriedade, staff, estado — incl. "Por atribuir"), navegação entre meses (Anterior/Hoje/Seguinte + badge com mês/ano em pt-PT), cartões de tarefa coloridos por estado (vermelho=por atribuir, âmbar=atribuída, verde=concluída, cinza=cancelada) com hover elevation, e modal de detalhe com reatribuição rápida via dropdown. Consome `GET /api/admin/calendario/dados` (auto-refresh quando filtros ou mês mudam). Legenda visual no fundo.
 - **Relatórios** (`/admin/relatorios`): analytics com gráficos recharts — evolução diária (linha), produtividade por funcionário (barras), distribuição por estado (pie) + tabela de carga por propriedade. Filtro de período (7/30/90 dias ou datas custom).

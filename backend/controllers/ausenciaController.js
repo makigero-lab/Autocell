@@ -62,6 +62,14 @@ exports.listarAusencias = async (req, res) => {
       const hoje = normalizarDia(new Date());
       filtro.data_fim = { $gte: hoje };
     }
+    // v1.25.0: filtro por estado (pendente/aprovada/rejeitada) — usado pelo
+    // Centro de Aprovações de RH para mostrar só pendentes.
+    if (
+      req.query.estado &&
+      ['pendente', 'aprovada', 'rejeitada'].includes(req.query.estado)
+    ) {
+      filtro.estado = req.query.estado;
+    }
 
     const ausencias = await Ausencia.find(filtro)
       .populate({ path: 'utilizador_id', select: 'nome email role' })
