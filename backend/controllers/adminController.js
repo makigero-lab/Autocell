@@ -391,6 +391,152 @@ exports.alternarEstadoPropriedade = async (req, res) => {
 };
 
 /**
+ * PUT /api/admin/propriedades/:id
+ * Atualiza os dados de uma propriedade (nome, smoobu_id, morada,
+ * tempo_limpeza_minutos). Se a morada mudar, re-faz geocoding para
+ * atualizar as coordenadas (usadas no load balancer Haversine).
+ *
+ * Body (todos opcionais, mas pelo menos um tem de vir):
+ *   { nome?, smoobu_id?, morada?, tempo_limpeza_minutos? }
+ *
+ * Regras:
+ *   - Valida pertença à empresa (404 se não pertencer).
+ *   - smoobu_id é globalmente único → se mudar, valida que não há conflito
+ *     com outra propriedade (409 se houver).
+ *   - Se a morada mudar, re-faz geocoding (best-effort: se falhar, mantém
+ *     as coordenadas antigas — não bloqueia a edição).
+ *
+ * Resposta 200: { propriedade }
+ */
+exports.atualizarPropriedade = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de propriedade inválido.' });
+    }
+
+    const propriedade = await Propriedade.findOne({
+      _id: id,
+      empresa_id: empresaId,
+    });
+    if (!propriedade) {
+      return res.status(404).json({
+        erro: 'Propriedade não encontrada (ou não pertence a esta empresa).',
+      });
+    }
+
+    const { nome, smoobu_id, morada, tempo_limpeza_minutos } = req.body || {};
+
+    // Tem de haver pelo menos um campo para atualizar.
+    if (
+      nome === undefined &&
+      smoobu_id === undefined &&
+      morada === undefined &&
+      tempo_limpeza_minutos === undefined
+    ) {
+      return res.status(400).json({
+        erro: 'Nenhum campo para atualizar. Envie nome, smoobu_id, morada ou tempo_limpeza_minutos.',
+      });
+    }
+
+    // Validações de formato (se vierem).
+    if (nome !== undefined && !String(nome).trim()) {
+      return res.status(400).json({ erro: 'nome não pode ser vazio.' });
+    }
+    if (smoobu_id !== undefined && !String(smoobu_id).trim()) {
+      return res.status(400).json({ erro: 'smoobu_id não pode ser vazio.' });
+    }
+    if (morada !== undefined && !String(morada).trim()) {
+      return res.status(400).json({ erro: 'morada não pode ser vazia.' });
+    }
+    if (tempo_limpeza_minutos !== undefined && tempo_limpeza_minutos !== null) {
+      const n = Number(tempo_limpeza_minutos);
+      if (Number.isNaN(n) || n < 0) {
+        return res.status(400).json({
+          erro: 'tempo_limpeza_minutos deve ser um número maior ou igual a 0.',
+        });
+      }
+    }
+
+    // smoobu_id único (global) — se mudou, verificar conflito com outra propriedade.
+    const novoSmoobuId =
+      smoobu_id !== undefined ? String(smoobu_id).trim() : propriedade.smoobu_id;
+    if (novoSmoobuId !== propriedade.smoobu_id) {
+      const conflito = await Propriedade.findOne({ smoobu_id: novoSmoobuId });
+      if (conflito && String(conflito._id) !== String(propriedade._id)) {
+        return res.status(409).json({
+          erro: `Já existe outra propriedade com smoobu_id "${novoSmoobuId}".`,
+        });
+      }
+      propriedade.smoobu_id = novoSmoobuId;
+    }
+
+    // Nome.
+    if (nome !== undefined) {
+      propriedade.nome = String(nome).trim();
+    }
+
+    // Tempo de limpeza.
+    if (tempo_limpeza_minutos !== undefined && tempo_limpeza_minutos !== null) {
+      propriedade.tempo_limpeza_minutos = Number(tempo_limpeza_minutos);
+    }
+
+    // Morada — se mudou, re-faz geocoding (best-effort).
+    if (morada !== undefined) {
+      const novaMorada = String(morada).trim();
+      if (novaMorada !== propriedade.morada) {
+        propriedade.morada = novaMorada;
+        try {
+          const coords = await obterCoordenadas(novaMorada);
+          if (coords) {
+            propriedade.coordenadas = coords;
+          }
+        } catch (err) {
+          // Geocoding falhou → mantém coordenadas antigas (não bloqueia).
+          console.error(
+            '⚠️  Geocoding falhou na edição (coordenadas mantidas):',
+            err.message
+          );
+        }
+      }
+    }
+
+    await propriedade.save();
+
+    // Auditoria.
+    registarAuditoria({
+      utilizador_id: req.user.id,
+      utilizador_nome: req.user.nome || 'Admin',
+      empresa_id: empresaId,
+      acao: 'atualizar',
+      recurso: 'propriedade',
+      recurso_id: propriedade._id,
+      descricao: `Propriedade "${propriedade.nome}" atualizada`,
+      detalhes: { smoobu_id: propriedade.smoobu_id, morada: propriedade.morada },
+    });
+
+    return res.status(200).json({ propriedade });
+  } catch (err) {
+    console.error('❌ atualizarPropriedade:', err.message);
+
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ erro: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(409).json({
+        erro: 'Violação de unicidade.',
+        detalhe: err.keyValue,
+      });
+    }
+
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
  * GET /api/admin/equipa
  * Lista todos os utilizadores da empresa (qualquer role).
  * O `empresa_id` vem do JWT (via obterEmpresaId, que lê `req.user.empresa_id`).

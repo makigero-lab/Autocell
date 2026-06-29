@@ -79,6 +79,7 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `GET`  | `/api/admin/propriedades` | Lista as propriedades da empresa. **Auth:** JWT. |
 | `POST` | `/api/admin/propriedades` | Cria propriedade (com geocoding da morada). **Auth:** JWT; **Body:** `smoobu_id`, `nome`, `morada`, `tempo_limpeza_minutos?` |
 | `PATCH`| `/api/admin/propriedades/:id/estado` | Ativa/desativa propriedade (webhook ignora inativas). **Auth:** JWT. |
+| `PUT` | `/api/admin/propriedades/:id` | Atualiza propriedade (nome, smoobu_id, morada, tempo). Re-faz geocoding se morada mudar. **Auth:** JWT. |
 | `GET`  | `/api/admin/tarefas` | Lista tarefas (calendário de operações). Query: `?inicio=&fim=`. **Auth:** JWT. |
 | `GET`  | `/api/admin/tarefas/export` | Exportação CSV de tarefas. Query: `?inicio=&fim=`. **Auth:** JWT. |
 | `POST` | `/api/admin/tarefas` | Cria tarefa manualmente. **Auth:** JWT. |

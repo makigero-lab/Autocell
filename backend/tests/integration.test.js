@@ -251,6 +251,70 @@ describe('Propriedades (CRUD)', () => {
     const res = await authPatch(`/api/admin/propriedades/${idInexistente}/estado`, {});
     expect(res.status).toBe(404);
   });
+
+  it('PUT /api/admin/propriedades/:id → 200 (atualiza nome e tempo)', async () => {
+    // Cria uma propriedade para editar.
+    const criada = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-1',
+      nome: 'Nome Inicial',
+      morada: 'Rua Inicial 1, Lisboa',
+      tempo_limpeza_minutos: 60,
+    });
+    expect(criada.status).toBe(201);
+
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criada.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nome: 'Nome Editado', tempo_limpeza_minutos: 90 });
+    expect(res.status).toBe(200);
+    expect(res.body.propriedade.nome).toBe('Nome Editado');
+    expect(res.body.propriedade.tempo_limpeza_minutos).toBe(90);
+    // smoobu_id e morada não mudaram.
+    expect(res.body.propriedade.smoobu_id).toBe('prop-edit-1');
+  });
+
+  it('PUT com smoobu_id duplicado (de outra propriedade) → 409', async () => {
+    // Cria duas propriedades.
+    await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-2',
+      nome: 'A',
+      morada: 'Rua A',
+    });
+    const criadaB = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-3',
+      nome: 'B',
+      morada: 'Rua B',
+    });
+
+    // Tenta mudar B para o smoobu_id de A → 409.
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criadaB.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ smoobu_id: 'prop-edit-2' });
+    expect(res.status).toBe(409);
+  });
+
+  it('PUT com id inexistente → 404', async () => {
+    const idInexistente = new mongoose.Types.ObjectId();
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${idInexistente}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nome: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT sem campos no body → 400', async () => {
+    const criada = await authPost('/api/admin/propriedades', {
+      smoobu_id: 'prop-edit-4',
+      nome: 'C',
+      morada: 'Rua C',
+    });
+    const res = await request(app)
+      .put(`/api/admin/propriedades/${criada.body.propriedade._id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
 });
 
 /* ------------------------------------------------------------------ */

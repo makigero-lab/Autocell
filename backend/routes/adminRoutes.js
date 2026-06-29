@@ -29,6 +29,7 @@ const {
   getDashboard,
   getPropriedades,
   criarPropriedade,
+  atualizarPropriedade,
   alternarEstadoPropriedade,
   getTarefas,
   getEquipa,
@@ -55,6 +56,7 @@ router.get('/dashboard', auth, getDashboard);
 // Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);
 router.post('/propriedades', auth, criarPropriedade);
+router.put('/propriedades/:id', auth, atualizarPropriedade);
 router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
