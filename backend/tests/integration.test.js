@@ -674,3 +674,176 @@ describe('GET /api/admin/relatorios/produtividade', () => {
     expect(res.body.periodo.fim).toBeDefined();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 9. Smoobu — sincronização em massa                                  */
+/* ------------------------------------------------------------------ */
+
+describe('POST /api/admin/smoobu/sincronizar', () => {
+  let apiKeyOriginal;
+
+  beforeEach(() => {
+    apiKeyOriginal = process.env.SMOOBU_API_KEY;
+    // Limpa tarefas entre testes.
+    Tarefa.deleteMany({}).catch(() => {});
+  });
+
+  afterEach(() => {
+    // Restaura a API key.
+    if (apiKeyOriginal === undefined) {
+      delete process.env.SMOOBU_API_KEY;
+    } else {
+      process.env.SMOOBU_API_KEY = apiKeyOriginal;
+    }
+    // Restaura o fetch global se foi mocked.
+    if (global.fetch && global.fetch.__isMock) {
+      global.fetch.mockRestore();
+      delete global.fetch.__isMock;
+    }
+  });
+
+  it('sem token → 401', async () => {
+    const res = await request(app).post('/api/admin/smoobu/sincronizar');
+    expect(res.status).toBe(401);
+  });
+
+  it('sem SMOOBU_API_KEY configurada → 400', async () => {
+    delete process.env.SMOOBU_API_KEY;
+    const res = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toMatch(/SMOOBU_API_KEY/);
+  });
+
+  it('com API key + fetch mockado → 200 + contadores', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    // Mocka o fetch global para devolver 2 reservas (uma nova, uma duplicada).
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        reservations: [
+          {
+            id: 2001,
+            arrival: amanha,
+            apartment: { id: 200, name: 'Apartamento Teste' },
+          },
+          {
+            id: 2002,
+            arrival: amanha,
+            apartment: { id: 200, name: 'Apartamento Teste' },
+          },
+        ],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res.status).toBe(200);
+    expect(res.body.totalRecebidas).toBe(2);
+    expect(res.body.criadas).toBe(2);
+    expect(res.body.existentes).toBe(0);
+    expect(res.body.erros).toBe(0);
+    expect(res.body.importadas).toBe(2);
+
+    // Confirma que o fetch foi chamado com o URL e header corretos.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toMatch(/login\.smoobu\.com\/api\/reservations\?from=/);
+    expect(opts.headers['Api-Key']).toBe('test-key-123');
+  });
+
+  it('idempotente — sincronizar 2x não cria duplicados', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        reservations: [
+          {
+            id: 3001,
+            arrival: amanha,
+            apartment: { id: 200, name: 'X' },
+          },
+        ],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    // 1ª sincronização → cria.
+    const res1 = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res1.status).toBe(200);
+    expect(res1.body.criadas).toBe(1);
+    expect(res1.body.existentes).toBe(0);
+
+    // 2ª sincronização → já existe.
+    const res2 = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res2.status).toBe(200);
+    expect(res2.body.criadas).toBe(0);
+    expect(res2.body.existentes).toBe(1);
+
+    // Confirma que só existe 1 tarefa.
+    const count = await Tarefa.countDocuments({ smoobu_reserva_id: '3001' });
+    expect(count).toBe(1);
+  });
+
+  it('fetch devolve erro 500 → 502', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({}),
+      text: async () => 'Smoobu error',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res.status).toBe(502);
+    expect(res.body.erro).toMatch(/500/);
+  });
+
+  it('reserva com propriedade inexistente → conta como erro mas não falha o todo', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        reservations: [
+          {
+            id: 4001,
+            arrival: amanha,
+            apartment: { id: 999999, name: 'Inexistente' }, // prop não existe
+          },
+          {
+            id: 4002,
+            arrival: amanha,
+            apartment: { id: 200, name: 'Existe' },
+          },
+        ],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authPost('/api/admin/smoobu/sincronizar', {});
+    expect(res.status).toBe(200);
+    expect(res.body.totalRecebidas).toBe(2);
+    expect(res.body.criadas).toBe(1);
+    expect(res.body.erros).toBe(1);
+    expect(res.body.detalheErros.length).toBe(1);
+    expect(String(res.body.detalheErros[0].reservaId)).toBe('4001');
+  });
+});

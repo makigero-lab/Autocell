@@ -553,6 +553,41 @@ Melhorias de robustez:
 
 ---
 
+### 6.7. Sincronização em massa do Smoobu (REST API pull) — v1.20.0
+
+*Protegido por JWT (middleware `auth`).*
+
+#### `POST /api/admin/smoobu/sincronizar`
+
+Vai buscar todas as reservas **futuras** (a partir de hoje) ao Smoobu via REST API e cria as tarefas correspondentes usando a mesma lógica do webhook. Casos de uso: configuração inicial (importar reservas antes do webhook), recuperação (webhook esteve em baixo), auditoria (confirmar que não há reservas sem tarefa).
+
+**Requer:** variável de ambiente `SMOOBU_API_KEY` (obtém-na no painel do Smoobu: Settings > API > API Key). Sem ela → `400`.
+
+**Fluxo:**
+1. Calcula a data de hoje (YYYY-MM-DD, UTC) — não importa o passado.
+2. `fetch('https://login.smoobu.com/api/reservations?from=YYYY-MM-DD')` com header `Api-Key`. Timeout de 30s.
+3. Itera sobre o array `reservations` do JSON de resposta.
+4. Para cada reserva, mapeia para o formato do webhook (`{ action: 'newReservation', data: { id, arrival, apartment: { id, name } } }`) e chama `_processarReservaSmoobu`.
+5. **Idempotência**: a função `processarReservaSmoobu` já verifica `smoobu_reserva_id` antes de criar — correr várias vezes não cria duplicados.
+6. Cada reserva é envolvida num try/catch — se uma falhar (ex: propriedade não existe na BD), as outras continuam.
+7. Devolve contadores.
+
+**Resposta 200:**
+```json
+{
+  "totalRecebidas": 50,
+  "importadas": 48,
+  "criadas": 30,
+  "existentes": 18,
+  "erros": 2,
+  "detalheErros": [{ "reservaId": "12345", "erro": "Propriedade Smoobu 999 não encontrada na BD." }]
+}
+```
+
+**Erros:** `400` (API key em falta), `502` (erro no fetch ao Smoobu — timeout, 4xx/5xx, JSON inválido), `500` (erro interno).
+
+---
+
 ## 7. Deploy no Render
 
 | Definição        | Valor                        |
@@ -603,3 +638,4 @@ Melhorias de robustez:
 | v1.18.0    | 1.18.0 | **Webhook Smoobu para produção:** (1) **Idempotência** — antes de criar tarefa, verifica se já existe `Tarefa` com o mesmo `smoobu_reserva_id`; se sim, não duplica (o Smoobu faz retries). (2) **Robustez de ações** — só `newReservation` (e variantes) cria tarefa; outras ações (`updateReservation`, `cancellation`, etc.) são ignoradas graciosamente (log + 200, sem erro). (3) **Visibilidade** — novos endpoints `GET /api/admin/webhooks` (lista logs com filtro `?status=` + `?limit=`) e `POST /api/admin/webhooks/:id/reprocessar` (reprocessa webhook que falhou, reutiliza o payload guardado). Função interna `processarReservaSmoobu` exportada como `_processarReservaSmoobu` para o reproccessamento. Página `/admin/webhooks` no frontend (cartões de filtro por estado + lista expandível com payload bruto + erro + botão reprocessar). 6 novos testes (35 no total): idempotência, ação desconhecida, listagem com/sem token, filtro status, reproccessamento. |
 | v1.19.0    | 1.19.0 | **Reação a cancelamentos e edições do Smoobu:** o webhook deixa de ignorar `cancellation` e `updateReservation` — agora **reage**. `processarReservaSmoobu` refactorizada num **dispatcher** que chama 3 handlers: `criarTarefaPorReserva` (newReservation, com re-activação se a tarefa estava cancelada), `cancelarTarefaPorReserva` (cancellation → `estado='cancelada'`, respeita concluídas, idempotente) e `atualizarTarefaPorReserva` (updateReservation → atualiza `data`/`propriedade_id`/`tempo_limpeza_minutos`; se a data mudou, **reavalia a atribuição** verificando folgas fixas + ausências + ativo — mantém o funcionário se ainda for disponível, senão passa a `por_atribuir`; se a tarefa estava cancelada, re-activa; se não existir tarefa, cai para o fluxo de criação por fallback). Update sem tarefa existente agora cria (em vez de ignorar). 6 novos testes (41 no total): cancellation, cancellation idempotente, cancellation sem tarefa, update de data, update sem tarefa (fallback), re-activação após cancelamento. |
 | v1.19.1    | 1.19.1 | **Edição de propriedades:** novo endpoint `PUT /api/admin/propriedades/:id` (`atualizarPropriedade`) que permite editar `nome`, `smoobu_id`, `morada` e `tempo_limpeza_minutos`. Valida pertença à empresa (404); valida unicidade global do `smoobu_id` (409 se outra propriedade já o tiver); se a `morada` mudar, **re-faz geocoding** (best-effort — se falhar, mantém coordenadas antigas, não bloqueia). Auditoria registada. No frontend, página `/admin/propriedades` tem agora botão "Editar" (ícone Pencil) que abre modal com os 4 campos. 4 novos testes (45 no total): atualizar nome+tempo, smoobu_id duplicado 409, id inexistente 404, body vazio 400. |
+| v1.20.0    | 1.20.0 | **Sincronização em massa do Smoobu (REST API pull):** novo endpoint `POST /api/admin/smoobu/sincronizar` (`controllers/smoobuController.js` → `sincronizarReservas`) que vai buscar todas as reservas **futuras** (a partir de hoje) ao Smoobu via REST API (`fetch https://login.smoobu.com/api/reservations?from=YYYY-MM-DD` com header `Api-Key`) e cria as tarefas correspondentes reutilizando `_processarReservaSmoobu` (idempotente — não cria duplicados). Cada reserva é mapeada do formato REST API para o formato do webhook e processada individualmente com try/catch (se uma falhar, ex: propriedade inexistente, as outras continuam). Devolve contadores: `totalRecebidas`, `importadas` (criadas + existentes), `criadas`, `existentes`, `erros`, `detalheErros`. Requer variável de ambiente `SMOOBU_API_KEY` (documentada em `.env.example` + topo do `server.js`); sem ela → `400`. Erros de fetch/timeout/JSON → `502`. Reutiliza a função já exportada `_processarReservaSmoobu` (sem duplicar lógica). 6 novos testes (51 no total) com mock de `global.fetch`: sem token 401, sem API key 400, contadores corretos, idempotência (2x não duplica), erro 500 do Smoobu → 502, reserva com propriedade inexistente → erro isolado. |
