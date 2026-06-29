@@ -13,6 +13,9 @@ const bcrypt = require('bcryptjs');
 const Empresa = require('../models/Empresa');
 const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
+const Tarefa = require('../models/Tarefa');
+const Ausencia = require('../models/Ausencia');
+const { obterCoordenadas } = require('../utils/geocoding');
 
 /* ------------------------------------------------------------------ */
 /* Helper — obter empresa_id do JWT (req.user)                        */
@@ -41,6 +44,9 @@ function obterEmpresaId(req, res) {
   }
   return { ok: true, empresaId };
 }
+
+// Exporta para reutilização noutros controllers (ex: tarefaController).
+exports.obterEmpresaId = obterEmpresaId;
 
 /* ------------------------------------------------------------------ */
 /* Propriedades                                                         */
@@ -80,12 +86,12 @@ exports.criarPropriedade = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const { smoobu_id, nome, tempo_limpeza_minutos } = req.body || {};
+    const { smoobu_id, nome, morada, tempo_limpeza_minutos } = req.body || {};
 
     // Validações de presença.
-    if (!smoobu_id || !nome) {
+    if (!smoobu_id || !nome || !morada) {
       return res.status(400).json({
-        erro: 'Campos obrigatórios em falta: smoobu_id e nome.',
+        erro: 'Campos obrigatórios em falta: smoobu_id, nome e morada.',
       });
     }
 
@@ -110,9 +116,24 @@ exports.criarPropriedade = async (req, res) => {
       tempo = n;
     }
 
+    // Geocoding: converte a morada em coordenadas (lat, lng).
+    // Se falhar, a propriedade é criada com coordenadas null (não bloqueia).
+    const moradaTrim = String(morada).trim();
+    let coordenadas = { lat: null, lng: null };
+    try {
+      const coords = await obterCoordenadas(moradaTrim);
+      if (coords) {
+        coordenadas = coords;
+      }
+    } catch (err) {
+      console.error('⚠️  Geocoding falhou (propriedade criada sem coordenadas):', err.message);
+    }
+
     const nova = await Propriedade.create({
       smoobu_id: String(smoobu_id),
       nome: String(nome).trim(),
+      morada: moradaTrim,
+      coordenadas,
       empresa_id: empresaId,
       tempo_limpeza_minutos: tempo,
     });
@@ -139,8 +160,116 @@ exports.criarPropriedade = async (req, res) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Tarefas (Calendário Geral de Operações)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/tarefas
+ * Lista todas as Tarefas da empresa, com populate de propriedade e utilizador.
+ *
+ * Query params opcionais:
+ *   ?inicio=YYYY-MM-DD  — data de início do filtro (inclusive)
+ *   ?fim=YYYY-MM-DD     — data de fim do filtro (inclusive)
+ *
+ * Sem filtro de datas: devolve todas as tarefas (pode ser pesado — recomenda-se
+ * sempre passar inicio/fim no frontend).
+ *
+ * Resposta 200: { tarefas: [...] }
+ */
+exports.getTarefas = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const filtro = { empresa_id: empresaId, estado: { $ne: 'cancelada' } };
+
+    // Filtro por intervalo de datas (opcional).
+    const { inicio, fim } = req.query;
+    if (inicio || fim) {
+      const dataFiltro = {};
+      if (inicio) {
+        const d = new Date(inicio);
+        if (!isNaN(d.getTime())) {
+          dataFiltro.$gte = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+          );
+        }
+      }
+      if (fim) {
+        const d = new Date(fim);
+        if (!isNaN(d.getTime())) {
+          // Inclui o dia inteiro (até meia-noite do dia seguinte).
+          dataFiltro.$lt = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) +
+              24 * 60 * 60 * 1000
+          );
+        }
+      }
+      if (Object.keys(dataFiltro).length > 0) {
+        filtro.data = dataFiltro;
+      }
+    }
+
+    const tarefas = await Tarefa.find(filtro)
+      .populate({ path: 'propriedade_id', select: 'nome' })
+      .populate({ path: 'utilizador_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    return res.status(200).json({ tarefas });
+  } catch (err) {
+    console.error('❌ getTarefas:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
 /* Equipa (Utilizadores)                                               */
 /* ------------------------------------------------------------------ */
+
+/**
+ * PATCH /api/admin/propriedades/:id/estado
+ * Alterna o campo `ativo` da propriedade (true ↔ false).
+ * Propriedades inativas são ignoradas pelo webhook do Smoobu.
+ *
+ * Resposta 200: { propriedade: { ... }, ativo: boolean }
+ */
+exports.alternarEstadoPropriedade = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de propriedade inválido.' });
+    }
+
+    const propriedade = await Propriedade.findOne({
+      _id: id,
+      empresa_id: empresaId,
+    });
+    if (!propriedade) {
+      return res.status(404).json({
+        erro: 'Propriedade não encontrada (ou não pertence a esta empresa).',
+      });
+    }
+
+    // Se vier `ativo` no body, usa-o; senão alterna.
+    const novoEstado =
+      typeof req.body?.ativo === 'boolean' ? req.body.ativo : !propriedade.ativo;
+
+    propriedade.ativo = novoEstado;
+    await propriedade.save();
+
+    return res.status(200).json({
+      propriedade,
+      ativo: novoEstado,
+    });
+  } catch (err) {
+    console.error('❌ alternarEstadoPropriedade:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
 
 /**
  * GET /api/admin/equipa
@@ -154,7 +283,7 @@ exports.getEquipa = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const utilizadores = await Utilizador.find({ empresa_id: empresaId })
+    const utilizadores = await Utilizador.find({ empresa_id: empresaId, eliminado_em: null })
       .select('-password_hash') // nunca expor a hash
       .populate({ path: 'responsavel_id', select: 'nome email role' })
       .sort({ nome: 1 })
@@ -198,7 +327,7 @@ exports.criarMembroEquipa = async (req, res) => {
     const { ok, empresaId } = obterEmpresaId(req, res);
     if (!ok) return;
 
-    const { nome, email, password, role, responsavel_id } = req.body || {};
+    const { nome, email, password, role, responsavel_id, dias_folga, telefone } = req.body || {};
 
     // Validações de presença.
     if (!nome || !email || !password) {
@@ -259,6 +388,15 @@ exports.criarMembroEquipa = async (req, res) => {
       responsavelValidado = resp._id;
     }
 
+    // Valida dias_folga se vier (array de inteiros 0-6).
+    let diasFolgaFinal = [];
+    if (dias_folga !== undefined && dias_folga !== null) {
+      if (!Array.isArray(dias_folga)) {
+        return res.status(400).json({ erro: 'dias_folga deve ser um array de inteiros (0-6).' });
+      }
+      diasFolgaFinal = dias_folga.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+    }
+
     // Hash da password com bcrypt.
     const password_hash = await bcrypt.hash(String(password), 10);
 
@@ -269,6 +407,8 @@ exports.criarMembroEquipa = async (req, res) => {
       empresa_id: empresaId,
       role: roleFinal,
       responsavel_id: responsavelValidado,
+      dias_folga: diasFolgaFinal,
+      telefone: telefone ? String(telefone).trim() : '',
       ativo: true,
     });
 
@@ -319,16 +459,18 @@ exports.atualizarMembroEquipa = async (req, res) => {
       return res.status(400).json({ erro: 'ID de utilizador inválido.' });
     }
 
-    const { nome, email, role, password, responsavel_id } = req.body || {};
+    const { nome, email, role, password, responsavel_id, dias_folga, telefone } = req.body || {};
     if (
       nome === undefined &&
       email === undefined &&
       role === undefined &&
       password === undefined &&
-      responsavel_id === undefined
+      responsavel_id === undefined &&
+      dias_folga === undefined &&
+      telefone === undefined
     ) {
       return res.status(400).json({
-        erro: 'Nada para atualizar. Envie nome, email, role, password e/ou responsavel_id.',
+        erro: 'Nada para atualizar. Envie nome, email, role, password, responsavel_id, dias_folga e/ou telefone.',
       });
     }
 
@@ -416,6 +558,19 @@ exports.atualizarMembroEquipa = async (req, res) => {
         }
         utilizador.responsavel_id = resp._id;
       }
+    }
+
+    // --- dias_folga (opcional: array de inteiros 0-6) ---
+    if (dias_folga !== undefined) {
+      if (!Array.isArray(dias_folga)) {
+        return res.status(400).json({ erro: 'dias_folga deve ser um array de inteiros (0-6).' });
+      }
+      utilizador.dias_folga = dias_folga.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+    }
+
+    // --- telefone (opcional) ---
+    if (telefone !== undefined) {
+      utilizador.telefone = String(telefone).trim();
     }
 
     // --- Password (opcional: só se vier, faz hash nova) ---
@@ -542,7 +697,12 @@ exports.eliminarMembroEquipa = async (req, res) => {
     }
 
     const nomeEliminado = utilizador.nome;
-    await Utilizador.deleteOne({ _id: id });
+    // Soft delete: marca eliminado_em em vez de remover fisicamente.
+    // Isto protege as Tarefas antigas de ficarem com utilizador_id órfão
+    // (o histórico de tarefas continua a referenciar o utilizador).
+    utilizador.eliminado_em = new Date();
+    utilizador.ativo = false; // garante que não consegue fazer login
+    await utilizador.save();
 
     return res.status(200).json({
       mensagem: `Utilizador "${nomeEliminado}" eliminado com sucesso.`,
@@ -550,6 +710,335 @@ exports.eliminarMembroEquipa = async (req, res) => {
     });
   } catch (err) {
     console.error('❌ eliminarMembroEquipa:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Falta Súbita — Reatribuição de Emergência                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/equipa/:id/falta-subita
+ *
+ * Regista uma ausência de hoje para o utilizador e reatribui as suas
+ * tarefas de hoje a outros staff disponíveis (usando o load-balancer
+ * do webhookController com Haversine + tempo de viagem).
+ *
+ * Lógica:
+ *   1. Valida utilizador (pertence à empresa, não é admin, não é si próprio).
+ *   2. Regista Ausencia para hoje (ignora duplicado).
+ *   3. Procura Tarefas de hoje (atribuida ou por_atribuir) do utilizador.
+ *   4. Para cada tarefa, tenta determinarUtilizadorAtribuido (o faltante
+ *      já será excluído pela ausência acabada de criar).
+ *   5. Se encontra novo utilizador → atualiza tarefa. Senão → null + por_atribuir.
+ *
+ * Resposta 200: { reatribuidas, orfas, total, detalhes: [...] }
+ */
+exports.reportarFaltaSubita = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    // Valida utilizador.
+    const utilizador = await Utilizador.findOne({
+      _id: id,
+      empresa_id: empresaId,
+      eliminado_em: null,
+    });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível reportar falta de um administrador.',
+      });
+    }
+
+    // 1) Calcula o intervalo de hoje (UTC meia-noite).
+    const agora = new Date();
+    const hojeInicio = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+    const amanhaInicio = new Date(hojeInicio.getTime() + 24 * 60 * 60 * 1000);
+
+    // 2) Regista Ausencia para hoje (ignora erro de duplicado).
+    try {
+      await Ausencia.create({
+        utilizador_id: id,
+        empresa_id: empresaId,
+        data_inicio: hojeInicio,
+        data_fim: hojeInicio,
+        tipo: 'folga',
+        notas: 'Falta súbita reportada pelo admin',
+      });
+    } catch (err) {
+      if (err.code !== 11000) {
+        console.error('⚠️  Erro ao criar ausência de falta súbita:', err.message);
+      }
+      // Se duplicado, não é problema — o utilizador já tem ausência hoje.
+    }
+
+    // 3) Procura tarefas de hoje do utilizador (atribuida ou por_atribuir).
+    const tarefas = await Tarefa.find({
+      utilizador_id: id,
+      data: { $gte: hojeInicio, $lt: amanhaInicio },
+      estado: { $in: ['atribuida', 'por_atribuir'] },
+    }).populate({ path: 'propriedade_id', select: 'coordenadas nome' });
+
+    if (tarefas.length === 0) {
+      return res.status(200).json({
+        mensagem: 'Sem tarefas para reatribuir hoje.',
+        reatribuidas: 0,
+        orfas: 0,
+        total: 0,
+        detalhes: [],
+      });
+    }
+
+    // 4) Para cada tarefa, tenta reatribuir usando o load-balancer.
+    // Importa a função dinamicamente para evitar dependência circular.
+    const { determinarUtilizadorAtribuido } = require('../controllers/webhookController');
+
+    const range = { start: hojeInicio, end: amanhaInicio };
+    let reatribuidas = 0;
+    let orfas = 0;
+    const detalhes = [];
+
+    for (const tarefa of tarefas) {
+      const coordNovaProp = tarefa.propriedade_id?.coordenadas ?? null;
+
+      let novoUtilizador = null;
+      try {
+        novoUtilizador = await determinarUtilizadorAtribuido(
+          empresaId,
+          range,
+          coordNovaProp
+        );
+      } catch (err) {
+        console.error('⚠️  Erro ao reatribuir tarefa', tarefa._id, ':', err.message);
+      }
+
+      if (novoUtilizador) {
+        // Reatribui a tarefa.
+        tarefa.utilizador_id = novoUtilizador;
+        tarefa.estado = 'atribuida';
+        await tarefa.save();
+        reatribuidas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: String(novoUtilizador),
+          reatribuida: true,
+        });
+      } else {
+        // Ninguém disponível → tarefa órfã.
+        tarefa.utilizador_id = null;
+        tarefa.estado = 'por_atribuir';
+        await tarefa.save();
+        orfas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: null,
+          reatribuida: false,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      mensagem: `Falta súbita processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
+      reatribuidas,
+      orfas,
+      total: tarefas.length,
+      detalhes,
+    });
+  } catch (err) {
+    console.error('❌ reportarFaltaSubita:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Baixa Prolongada / Férias — Redistribuição de tarefas futuras      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/equipa/:id/baixa
+ *
+ * Regista uma ausência prolongada (baixa/férias) e reatribui TODAS as
+ * tarefas futuras do utilizador nesse período a outros staff disponíveis.
+ *
+ * Body: { data_inicio, data_fim, tipo?, notas? }
+ *
+ * Lógica:
+ *   1. Valida utilizador (empresa, não admin, não eliminado).
+ *   2. Cria Ausencia (ignora duplicado).
+ *   3. Procura Tarefas atribuídas no período [data_inicio, data_fim].
+ *   4. Para cada tarefa, chama determinarUtilizadorAtribuido (o faltante
+ *      já é excluído pela ausência). Reatribui ou deixa órfã.
+ *
+ * Resposta 200: { reatribuidas, orfas, total, detalhes: [...] }
+ */
+exports.registarBaixaProlongada = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de utilizador inválido.' });
+    }
+
+    const { data_inicio, data_fim, tipo, notas } = req.body || {};
+    if (!data_inicio || !data_fim) {
+      return res.status(400).json({
+        erro: 'Campos obrigatórios em falta: data_inicio e data_fim.',
+      });
+    }
+
+    // Valida utilizador.
+    const utilizador = await Utilizador.findOne({
+      _id: id,
+      empresa_id: empresaId,
+      eliminado_em: null,
+    });
+    if (!utilizador) {
+      return res.status(404).json({
+        erro: 'Utilizador não encontrado (ou não pertence a esta empresa).',
+      });
+    }
+    if (utilizador.role === 'admin') {
+      return res.status(403).json({
+        erro: 'Não é possível registar baixa de um administrador.',
+      });
+    }
+
+    // Normaliza datas para meia-noite UTC.
+    const dInicio = new Date(data_inicio);
+    const inicio = new Date(
+      Date.UTC(dInicio.getUTCFullYear(), dInicio.getUTCMonth(), dInicio.getUTCDate())
+    );
+    const dFim = new Date(data_fim);
+    const fim = new Date(
+      Date.UTC(dFim.getUTCFullYear(), dFim.getUTCMonth(), dFim.getUTCDate())
+    );
+    // fim do dia = meia-noite do dia seguinte (para query <).
+    const fimDia = new Date(fim.getTime() + 24 * 60 * 60 * 1000);
+
+    if (fim < inicio) {
+      return res.status(400).json({
+        erro: 'data_fim não pode ser anterior a data_inicio.',
+      });
+    }
+
+    // 1) Cria a Ausencia (ignora duplicado).
+    try {
+      await Ausencia.create({
+        utilizador_id: id,
+        empresa_id: empresaId,
+        data_inicio: inicio,
+        data_fim: fim,
+        tipo: tipo || 'ferias',
+        notas: notas ? String(notas).trim() : '',
+      });
+    } catch (err) {
+      if (err.code !== 11000) {
+        console.error('⚠️  Erro ao criar ausência de baixa:', err.message);
+      }
+      // Se duplicado, não é problema.
+    }
+
+    // 2) Procura tarefas atribuídas no período.
+    const tarefas = await Tarefa.find({
+      utilizador_id: id,
+      data: { $gte: inicio, $lt: fimDia },
+      estado: 'atribuida',
+    }).populate({ path: 'propriedade_id', select: 'coordenadas nome' });
+
+    if (tarefas.length === 0) {
+      return res.status(200).json({
+        mensagem: 'Sem tarefas para reatribuir no período.',
+        reatribuidas: 0,
+        orfas: 0,
+        total: 0,
+        detalhes: [],
+      });
+    }
+
+    // 3) Para cada tarefa, reatribui usando o load-balancer.
+    const { determinarUtilizadorAtribuido } = require('../controllers/webhookController');
+
+    let reatribuidas = 0;
+    let orfas = 0;
+    const detalhes = [];
+
+    for (const tarefa of tarefas) {
+      // Calcula o range do dia da tarefa.
+      const td = new Date(tarefa.data);
+      const tInicio = new Date(
+        Date.UTC(td.getUTCFullYear(), td.getUTCMonth(), td.getUTCDate())
+      );
+      const tFim = new Date(tInicio.getTime() + 24 * 60 * 60 * 1000);
+      const range = { start: tInicio, end: tFim };
+
+      const coordNovaProp = tarefa.propriedade_id?.coordenadas ?? null;
+      const tempoNovaTarefa = tarefa.tempo_limpeza_minutos || 60;
+
+      let novoUtilizador = null;
+      try {
+        novoUtilizador = await determinarUtilizadorAtribuido(
+          empresaId,
+          range,
+          coordNovaProp,
+          tempoNovaTarefa
+        );
+      } catch (err) {
+        console.error('⚠️  Erro ao reatribuir tarefa', tarefa._id, ':', err.message);
+      }
+
+      if (novoUtilizador) {
+        tarefa.utilizador_id = novoUtilizador;
+        await tarefa.save();
+        reatribuidas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          data: tarefa.data,
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: String(novoUtilizador),
+          reatribuida: true,
+        });
+      } else {
+        tarefa.utilizador_id = null;
+        tarefa.estado = 'por_atribuir';
+        await tarefa.save();
+        orfas++;
+        detalhes.push({
+          tarefa_id: String(tarefa._id),
+          data: tarefa.data,
+          propriedade: tarefa.propriedade_id?.nome ?? '?',
+          novo_utilizador_id: null,
+          reatribuida: false,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      mensagem: `Baixa processada: ${reatribuidas} tarefa(s) reatribuída(s), ${orfas} órfã(s).`,
+      reatribuidas,
+      orfas,
+      total: tarefas.length,
+      detalhes,
+    });
+  } catch (err) {
+    console.error('❌ registarBaixaProlongada:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

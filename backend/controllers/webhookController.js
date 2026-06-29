@@ -23,6 +23,7 @@ const Propriedade = require('../models/Propriedade');
 const Utilizador = require('../models/Utilizador');
 const Ausencia = require('../models/Ausencia');
 const Tarefa = require('../models/Tarefa');
+const WebhookLog = require('../models/WebhookLog');
 
 /* ------------------------------------------------------------------ */
 /* Utilitários                                                         */
@@ -127,19 +128,77 @@ function extrairDadosReserva(payload) {
 /* Lógica de atribuição (passos 3 a 6)                                */
 /* ------------------------------------------------------------------ */
 
+// Capacidade máxima diária por utilizador (7 horas = 420 minutos).
+// Inclui tempo de limpeza + tempo de viagem. Se um utilizador exceder
+// este limite ao receber a nova tarefa, é excluído da atribuição.
+// Justificação: as limpezas devem terminar antes do check-in (ex: 16h00),
+// pelo que 7h de trabalho produtivo é um SLA razoável.
+const CAPACIDADE_MAXIMA_MINUTOS = 420;
+
+/**
+ * Calcula o tempo de viagem entre duas coordenadas usando a Fórmula de
+ * Haversine (distância em linha reta) e uma velocidade média urbana de
+ * 30 km/h.
+ *
+ * TODO (futuro): substituir por Google Maps Distance Matrix API para ter
+ * em conta o trânsito real e a rota rodoviária.
+ *
+ * @param {{ lat: number, lng: number } | null} coordA
+ * @param {{ lat: number, lng: number } | null} coordB
+ * @returns {number} tempo de viagem em minutos (0 se coordenadas inválidas)
+ */
+function calcularTempoViagem(coordA, coordB) {
+  if (!coordA || !coordB || coordA.lat == null || coordA.lng == null ||
+      coordB.lat == null || coordB.lng == null) {
+    return 0;
+  }
+
+  const R = 6371; // raio da Terra em km
+  const dLat = ((coordB.lat - coordA.lat) * Math.PI) / 180;
+  const dLng = ((coordB.lng - coordA.lng) * Math.PI) / 180;
+  const lat1 = (coordA.lat * Math.PI) / 180;
+  const lat2 = (coordB.lat * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanciaKm = R * c;
+
+  // Velocidade média urbana: 30 km/h → tempo em minutos.
+  const velocidadeKmh = 30;
+  const tempoHoras = distanciaKm / velocidadeKmh;
+  const tempoMinutos = Math.round(tempoHoras * 60);
+
+  return tempoMinutos;
+}
+
 /**
  * Determina o utilizador (Staff) a quem atribuir a tarefa, aplicando:
  *   - filtro de ausências (passo 4)
- *   - cálculo de carga / load balancing (passo 5)
- *   - escolha do utilizador com menor carga (passo 6)
+ *   - filtro de folgas fixas semanais (v1.13.0)
+ *   - cálculo de carga + tempo de viagem (passo 5, v1.14.0)
+ *   - escolha do utilizador com menor carga_total (passo 6)
+ *
+ * v1.14.0 — Carga total = tempo_limpeza acumulado + tempo_viagem
+ *   O tempo_viagem é calculado entre a última tarefa do dia do utilizador
+ *   e a nova propriedade (Haversine). Se o utilizador não tiver tarefas
+ *   nesse dia, tempo_viagem = 0.
+ *
+ * v1.15.0 — SLA de Capacidade Máxima:
+ *   Após calcular a carga_total (limpeza + viagem + nova tarefa), se
+ *   carga_total > CAPACIDADE_MAXIMA_MINUTOS (420 min = 7h), o utilizador
+ *   é excluído. Se TODOS excederem, devolve null (tarefa por_atribuir).
  *
  * Devolve null se não houver ninguém disponível.
  *
  * @param {import('mongoose').Types.ObjectId} empresaId
  * @param {{start: Date, end: Date}} range
+ * @param {{ lat: number, lng: number } | null} coordenadasNovaPropriedade
+ * @param {number} tempoNovaTarefa - tempo_limpeza_minutos da nova tarefa
  * @returns {Promise<mongoose.Types.ObjectId|null>}
  */
-async function determinarUtilizadorAtribuido(empresaId, range) {
+async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPropriedade, tempoNovaTarefa) {
   // Passo 3 — Procurar todos os Staff e Managers ativos da empresa.
   // (O manager — responsável de limpezas — também pode executar limpezas,
   //  pelo que entra no load balancing como qualquer staff.)
@@ -152,36 +211,52 @@ async function determinarUtilizadorAtribuido(empresaId, range) {
   if (staff.length === 0) return null;
 
   // Passo 4 — Filtro de Ausências: excluir quem tem ausência que cobre este dia.
-  // v1.8.0: o modelo Ausencia passou a usar intervalos (data_inicio/data_fim).
-  // Sobreposição: ausencia.data_inicio <= dia_limite AND ausencia.data_fim >= dia.
-  // (dia = range.start; dia_limite = range.end, ou seja o início do dia seguinte)
-  // Mantém-se também a verificação do campo `data` legacy para retrocompatibilidade.
+  // v1.16.0: o campo legacy `data` foi removido. Query agora usa apenas
+  // data_inicio/data_fim (sobreposição de intervalos).
+  // Condição: ausencia.data_inicio <= dia AND ausencia.data_fim >= dia.
   const ausentes = await Ausencia.find({
     utilizador_id: { $in: staff.map((s) => s._id) },
-    $or: [
-      // Novo formato (intervalos): ausência cujo [data_inicio, data_fim] cobre o dia.
-      { data_inicio: { $lte: range.start }, data_fim: { $gte: range.start } },
-      // Legacy (dia único): ausência no próprio dia.
-      { data: { $gte: range.start, $lt: range.end } },
-    ],
+    data_inicio: { $lte: range.start },
+    data_fim: { $gte: range.start },
   }).distinct('utilizador_id');
 
   const setAusentes = new Set(ausentes.map(String));
-  const disponiveis = staff.filter((s) => !setAusentes.has(String(s._id)));
+
+  // v1.13.0 — Filtro de Folgas Fixas Semanais:
+  // Um utilizador também é excluído se o dia da semana do check-in
+  // estiver no seu array dias_folga (0=Dom, 6=Sáb, padrão Date.getDay()).
+  const diaSemana = range.start.getDay();
+
+  const disponiveis = staff.filter((s) => {
+    // Filtro de ausências (já calculado acima).
+    if (setAusentes.has(String(s._id))) return false;
+    // Filtro de folgas fixas semanais.
+    if (s.dias_folga && Array.isArray(s.dias_folga) && s.dias_folga.includes(diaSemana)) {
+      return false;
+    }
+    return true;
+  });
 
   if (disponiveis.length === 0) return null;
 
-  // Passo 5 — Cálculo de Carga: soma de tempo_limpeza_minutos das tarefas
-  // já atribuídas a cada utilizador disponível para esse dia.
+  // Passo 5 — Cálculo de Carga + Tempo de Viagem (v1.14.0):
+  // carga_total = tempo_limpeza acumulado + tempo_viagem
+  //
+  // Para cada utilizador disponível:
+  //   1. Soma o tempo_limpeza_minutos das tarefas já atribuídas no dia.
+  //   2. Encontra a ÚLTIMA tarefa do dia (com populate de propriedade_id
+  //      para obter coordenadas).
+  //   3. Calcula tempo_viagem entre a última casa e a nova casa (Haversine).
+  //   4. carga_total = soma_limpeza + tempo_viagem.
   const disponiveisIds = disponiveis.map((s) => s._id);
 
-  const cargas = await Tarefa.aggregate([
+  // Soma de tempo de limpeza por utilizador (aggregate).
+  const cargasLimpeza = await Tarefa.aggregate([
     {
       $match: {
         empresa_id: empresaId,
         utilizador_id: { $in: disponiveisIds },
         data: { $gte: range.start, $lt: range.end },
-        // Não contar tarefas canceladas nem concluídas na carga atual.
         estado: { $nin: ['cancelada', 'concluida'] },
       },
     },
@@ -193,20 +268,50 @@ async function determinarUtilizadorAtribuido(empresaId, range) {
     },
   ]);
 
-  const cargaMap = new Map();
-  for (const c of cargas) {
-    cargaMap.set(String(c._id), c.total);
+  const cargaLimpezaMap = new Map();
+  for (const c of cargasLimpeza) {
+    cargaLimpezaMap.set(String(c._id), c.total);
   }
 
-  // Passo 6 — Escolher o utilizador com menor carga acumulada
-  // (empate → primeiro encontrado; quem não tem tarefas conta como 0).
+  // Para cada utilizador, encontra a última tarefa do dia (com coordenadas).
+  // Fazemos um find por utilizador em vez de um aggregate complexo, porque
+  // precisamos de populate('propriedade_id', 'coordenadas').
   let melhorUtilizador = null;
-  let menorCarga = Infinity;
+  let menorCargaTotal = Infinity;
 
   for (const u of disponiveis) {
-    const carga = cargaMap.get(String(u._id)) ?? 0;
-    if (carga < menorCarga) {
-      menorCarga = carga;
+    // Tempo de limpeza acumulado.
+    const cargaLimpeza = cargaLimpezaMap.get(String(u._id)) ?? 0;
+
+    // Encontra a última tarefa do dia deste utilizador (com coordenadas).
+    const ultimaTarefa = await Tarefa.findOne({
+      utilizador_id: u._id,
+      data: { $gte: range.start, $lt: range.end },
+      estado: { $nin: ['cancelada', 'concluida'] },
+    })
+      .populate({ path: 'propriedade_id', select: 'coordenadas' })
+      .sort({ createdAt: -1 }) // mais recente primeiro
+      .lean();
+
+    // Calcula tempo de viagem.
+    let tempoViagem = 0;
+    if (ultimaTarefa && ultimaTarefa.propriedade_id) {
+      const coordAnterior = ultimaTarefa.propriedade_id.coordenadas;
+      tempoViagem = calcularTempoViagem(coordAnterior, coordenadasNovaPropriedade);
+    }
+
+    // Carga total = limpeza acumulada + viagem + tempo da nova tarefa.
+    // v1.15.0: inclui o tempo_limpeza_minutos da NOVA tarefa que está a
+    // ser atribuída (recebido como parâmetro adicional).
+    const cargaTotal = cargaLimpeza + tempoViagem + tempoNovaTarefa;
+
+    // SLA: se a carga total exceder a capacidade máxima, ignora este utilizador.
+    if (cargaTotal > CAPACIDADE_MAXIMA_MINUTOS) {
+      continue;
+    }
+
+    if (cargaTotal < menorCargaTotal) {
+      menorCargaTotal = cargaTotal;
       melhorUtilizador = u;
     }
   }
@@ -246,6 +351,16 @@ async function processarReservaSmoobu(payload) {
     throw new Error(`Propriedade Smoobu ${smoobuPropId} não encontrada na BD.`);
   }
 
+  // Validação: se a propriedade estiver suspensa (ativo: false), aborta.
+  if (!propriedade.ativo) {
+    console.warn(
+      `⚠️  Propriedade "${propriedade.nome}" (smoobu_id: ${smoobuPropId}) está suspensa — tarefa não criada.`
+    );
+    throw new Error(
+      `Propriedade "${propriedade.nome}" está suspensa (ativo: false). Tarefa não criada.`
+    );
+  }
+
   const empresaId = propriedade.empresa_id;
 
   // Passos 3 a 6 — Determinar o utilizador (best-effort).
@@ -253,7 +368,7 @@ async function processarReservaSmoobu(payload) {
   // mesmo assim, com utilizador_id: null, para o Admin atribuir manualmente.
   let utilizadorAtribuido = null;
   try {
-    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range);
+    utilizadorAtribuido = await determinarUtilizadorAtribuido(empresaId, range, propriedade.coordenadas, tempoLimpeza);
   } catch (err) {
     // Não interrompemos: a tarefa tem de ser criada (passo 7).
     console.error(
@@ -307,21 +422,57 @@ async function processarReservaSmoobu(payload) {
  * Responde 200 OK IMEDIATAMENTE ao Smoobu e processa a lógica de forma
  * assíncrona (fire-and-forget) para evitar timeouts no Smoobu.
  *
+ * v1.12.0 — WebhookLog (idempotência + auditoria):
+ *   Antes de devolver o 200, guarda o payload bruto num WebhookLog com
+ *   status 'recebido'. No bloco assíncrono (setImmediate), atualiza o log
+ *   para 'processado' se tudo correr bem, ou 'erro' com a mensagem se falhar.
+ *   Isto permite saber quantos webhooks foram recebidos vs processados vs
+ *   com erro, e reproccessar manualmente os que falharam.
+ *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  */
-exports.webhookSmoobu = (req, res) => {
-  // Resposta imediata — NÃO esperamos pelo processamento.
+exports.webhookSmoobu = async (req, res) => {
+  // 1) Guarda o payload bruto no WebhookLog com status 'recebido'.
+  //    Fazemos isto ANTES de devolver o 200 para garantir que o payload
+  //    nunca se perde, mesmo que o processamento assíncrono falhe.
+  let webhookLog = null;
+  try {
+    webhookLog = await WebhookLog.create({
+      payload: req.body,
+      status: 'recebido',
+    });
+  } catch (err) {
+    console.error('⚠️  Erro ao guardar WebhookLog (payload será perdido):', err.message);
+    // Não interrompemos o fluxo — o Smoobu precisa do 200.
+  }
+
+  // 2) Resposta imediata — NÃO esperamos pelo processamento.
   res.status(200).json({ status: 'recebido' });
 
-  // Processamento assíncrono com tratamento de erros robusto.
+  // 3) Processamento assíncrono com tratamento de erros robusto.
+  //    Atualiza o WebhookLog conforme o resultado.
   setImmediate(async () => {
     try {
       await processarReservaSmoobu(req.body);
+
+      // Sucesso → atualiza log para 'processado'.
+      if (webhookLog) {
+        await WebhookLog.findByIdAndUpdate(webhookLog._id, {
+          status: 'processado',
+          erro_msg: null,
+        });
+      }
     } catch (err) {
       console.error('❌ Erro no processamento do webhook Smoobu:', err.message);
-      // TODO (futuro): persistir o payload bruto numa coleção de WebhookLog
-      // e/ou integrar com sistema de retentas (ex.: fila BullMQ) para reprocessar.
+
+      // Erro → atualiza log para 'erro' com a mensagem.
+      if (webhookLog) {
+        await WebhookLog.findByIdAndUpdate(webhookLog._id, {
+          status: 'erro',
+          erro_msg: err.message,
+        });
+      }
     }
   });
 };

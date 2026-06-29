@@ -1,29 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { estaAutenticado, lerUtilizadorDoToken, rotaPorRole } from "@/lib/auth";
+import { lerUtilizador, rotaPorRole } from "@/lib/auth";
 
 /**
  * Landing page — ponto de entrada público.
  *
  * Estética premium: fundo limpo, marca minimalista, um único botão de ação.
  *
- * Se o utilizador já tiver um token válido, é redirecionado automaticamente
- * para o seu painel (admin → /admin, staff → /staff).
+ * Se o utilizador já tiver um token válido (cookie httpOnly), é redirecionado
+ * automaticamente para o seu painel (admin → /admin, manager → /manager,
+ * staff → /staff). A verificação é feita via fetch a /api/auth/me (proxy
+ * que lê o cookie httpOnly no servidor).
  */
 export default function HomePage() {
   const router = useRouter();
+  const [aVerificar, setAVerificar] = useState(true);
 
   useEffect(() => {
-    const user = lerUtilizadorDoToken();
-    if (user) {
-      router.replace(rotaPorRole(user.role));
-    }
+    let cancelado = false;
+    (async () => {
+      const user = await lerUtilizador();
+      if (cancelado) return;
+      if (user) {
+        router.replace(rotaPorRole(user.role));
+      } else {
+        setAVerificar(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
   }, [router]);
 
   return (

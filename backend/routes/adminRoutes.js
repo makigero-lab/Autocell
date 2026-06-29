@@ -28,26 +28,44 @@ const { auth } = require('../middleware/auth');
 const {
   getPropriedades,
   criarPropriedade,
+  alternarEstadoPropriedade,
+  getTarefas,
   getEquipa,
   criarMembroEquipa,
   atualizarMembroEquipa,
   alternarEstadoMembro,
   eliminarMembroEquipa,
+  reportarFaltaSubita,
+  registarBaixaProlongada,
   setupClienteZero,
 } = require('../controllers/adminController');
+const { reportarAtrasoTarefa } = require('../controllers/tarefaController');
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
 
-// Gestão de propriedades da empresa. PROTEGIDO por JWT (com fallback legacy).
+// Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);
 router.post('/propriedades', auth, criarPropriedade);
+router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
-// Gestão de equipa (utilizadores) da empresa. PROTEGIDO por JWT (com fallback legacy).
+// Calendário Geral de Operações — lista tarefas com filtro de datas.
+router.get('/tarefas', auth, getTarefas);
+
+// Reportar atraso numa tarefa.
+router.post('/tarefas/:id/atraso', auth, reportarAtrasoTarefa);
+
+// Gestão de equipa (utilizadores) da empresa. PROTEGIDO por JWT.
 router.get('/equipa', auth, getEquipa);
 router.post('/equipa', auth, criarMembroEquipa);
 router.put('/equipa/:id', auth, atualizarMembroEquipa);
 router.patch('/equipa/:id/estado', auth, alternarEstadoMembro);
 router.delete('/equipa/:id', auth, eliminarMembroEquipa);
+
+// Falta súbita — reatribuição de emergência.
+router.post('/equipa/:id/falta-subita', auth, reportarFaltaSubita);
+
+// Baixa prolongada / férias — redistribuição de tarefas futuras.
+router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
 
 module.exports = router;

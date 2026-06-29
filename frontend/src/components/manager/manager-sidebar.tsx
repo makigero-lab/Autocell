@@ -10,10 +10,12 @@ import {
   Menu,
   X,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { fazerLogout } from "@/lib/auth";
 
 interface NavItem {
   label: string;
@@ -97,7 +99,15 @@ export function ManagerSidebar() {
       <aside className="hidden w-64 shrink-0 border-r bg-card lg:flex lg:flex-col">
         <Brand />
         <NavLinks />
-        <div className="mt-auto border-t p-4">
+        <div className="mt-auto space-y-2 border-t p-4">
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-destructive"
+            onClick={() => fazerLogout()}
+          >
+            <LogOut className="h-4 w-4" />
+            Terminar Sessão
+          </Button>
           <p className="text-xs text-muted-foreground">
             © {new Date().getFullYear()} Autocell
           </p>

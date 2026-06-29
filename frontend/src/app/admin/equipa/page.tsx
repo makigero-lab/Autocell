@@ -10,6 +10,9 @@ import {
   Pencil,
   Trash2,
   Power,
+  Phone,
+  Siren,
+  CalendarOff,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -65,6 +68,63 @@ const ROLE_VARIANT: Record<Role, "default" | "secondary" | "outline"> = {
   staff: "outline",
 };
 
+const DIAS_SEMANA = [
+  { valor: 0, label: "Dom" },
+  { valor: 1, label: "Seg" },
+  { valor: 2, label: "Ter" },
+  { valor: 3, label: "Qua" },
+  { valor: 4, label: "Qui" },
+  { valor: 5, label: "Sex" },
+  { valor: 6, label: "Sáb" },
+];
+
+/** Componente de checkboxes para Folgas Semanais Fixas (0=Dom a 6=Sáb). */
+function FolgasSemanaisCheckboxes({
+  diasFolga,
+  onChange,
+}: {
+  diasFolga: number[];
+  onChange: (dias: number[]) => void;
+}) {
+  function toggle(dia: number) {
+    if (diasFolga.includes(dia)) {
+      onChange(diasFolga.filter((d) => d !== dia));
+    } else {
+      onChange([...diasFolga, dia].sort((a, b) => a - b));
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">
+        Folgas Semanais Fixas{" "}
+        <span className="font-normal text-muted-foreground">
+          (dias de descanso habituais — o sistema ignora o staff nestes dias)
+        </span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {DIAS_SEMANA.map((d) => {
+          const checked = diasFolga.includes(d.valor);
+          return (
+            <button
+              key={d.valor}
+              type="button"
+              onClick={() => toggle(d.valor)}
+              className={`inline-flex h-9 min-w-[3rem] items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors ${
+                checked
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              {d.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function EquipaPage() {
   const [utilizadores, setUtilizadores] = useState<UtilizadorDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +138,8 @@ export default function EquipaPage() {
     password: "",
     role: "staff" as Role,
     responsavel_id: "" as string,
+    dias_folga: [] as number[],
+    telefone: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -90,6 +152,8 @@ export default function EquipaPage() {
     role: "staff" as Role,
     password: "", // vazia = não alterar
     responsavel_id: "" as string,
+    dias_folga: [] as number[],
+    telefone: "",
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErro, setEditErro] = useState<string | null>(null);
@@ -97,6 +161,17 @@ export default function EquipaPage() {
   // Modal de confirmação de eliminação
   const [eliminando, setEliminando] = useState<UtilizadorDTO | null>(null);
   const [elimSubmitting, setElimSubmitting] = useState(false);
+
+  // Modal de falta súbita
+  const [faltaSubita, setFaltaSubita] = useState<UtilizadorDTO | null>(null);
+  const [faltaSubmitting, setFaltaSubmitting] = useState(false);
+  const [faltaResultado, setFaltaResultado] = useState<string | null>(null);
+
+  // Modal de baixa prolongada
+  const [baixaModal, setBaixaModal] = useState<UtilizadorDTO | null>(null);
+  const [baixaForm, setBaixaForm] = useState({ data_inicio: "", data_fim: "" });
+  const [baixaSubmitting, setBaixaSubmitting] = useState(false);
+  const [baixaResultado, setBaixaResultado] = useState<string | null>(null);
 
   // Utilizadores que podem ser responsáveis (admin + manager).
   // Usado para popular o select de Responsável nos formulários.
@@ -146,8 +221,10 @@ export default function EquipaPage() {
         password: form.password,
         role: form.role,
         responsavel_id: form.responsavel_id || null,
+        dias_folga: form.dias_folga,
+        telefone: form.telefone,
       });
-      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
+      setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [], telefone: "" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -166,6 +243,8 @@ export default function EquipaPage() {
       role: u.role,
       password: "",
       responsavel_id: u.responsavel_id ?? "",
+      dias_folga: u.dias_folga ?? [],
+      telefone: u.telefone ?? "",
     });
     setEditErro(null);
   }
@@ -192,6 +271,8 @@ export default function EquipaPage() {
         email: editForm.email.trim(),
         role: editForm.role,
         responsavel_id: editForm.responsavel_id || null,
+        dias_folga: editForm.dias_folga,
+        telefone: editForm.telefone,
       };
       if (editForm.password) body.password = editForm.password;
 
@@ -234,6 +315,29 @@ export default function EquipaPage() {
       setEditErro(e instanceof Error ? e.message : "Erro ao eliminar.");
     } finally {
       setElimSubmitting(false);
+    }
+  }
+
+  /** Reporta falta súbita (POST) e mostra resultado. */
+  async function handleFaltaSubita() {
+    if (!faltaSubita) return;
+    setFaltaSubmitting(true);
+    setFaltaResultado(null);
+    try {
+      const res = await adminPost<{ reatribuidas: number; orfas: number; total: number }>(
+        `/api/admin/equipa/${faltaSubita._id}/falta-subita`,
+        {}
+      );
+      setFaltaResultado(
+        `${res.reatribuidas} tarefa(s) reatribuída(s) aos colegas, ${res.orfas} tarefa(s) ficou(aram) por atribuir.`
+      );
+      await carregar();
+    } catch (e) {
+      setFaltaResultado(
+        e instanceof Error ? e.message : "Erro ao processar falta súbita."
+      );
+    } finally {
+      setFaltaSubmitting(false);
     }
   }
 
@@ -322,6 +426,20 @@ export default function EquipaPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <label htmlFor="telefone" className="text-sm font-medium">
+                    Telemóvel (WhatsApp)
+                  </label>
+                  <Input
+                    id="telefone"
+                    type="tel"
+                    value={form.telefone}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, telefone: e.target.value }))
+                    }
+                    placeholder="+351 912 345 678"
+                  />
+                </div>
+                <div className="space-y-1.5">
                   <label htmlFor="role" className="text-sm font-medium">
                     Role
                   </label>
@@ -362,6 +480,12 @@ export default function EquipaPage() {
                 </div>
               </div>
 
+              {/* Folgas Semanais Fixas */}
+              <FolgasSemanaisCheckboxes
+                diasFolga={form.dias_folga}
+                onChange={(dias) => setForm((f) => ({ ...f, dias_folga: dias }))}
+              />
+
               {formErro && (
                 <p className="flex items-center gap-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -386,7 +510,7 @@ export default function EquipaPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "" });
+                    setForm({ nome: "", email: "", password: "", role: "staff", responsavel_id: "", dias_folga: [], telefone: "" });
                   }}
                   disabled={submitting}
                 >
@@ -437,6 +561,7 @@ export default function EquipaPage() {
                   <tr className="border-b bg-muted/40 text-left">
                     <th className="px-4 py-3 font-medium">Nome</th>
                     <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Telemóvel</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium">Responsável</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
@@ -449,6 +574,16 @@ export default function EquipaPage() {
                       <td className="px-4 py-3 font-medium">{u.nome}</td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {u.email}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {u.telefone ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5" />
+                            {u.telefone}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={ROLE_VARIANT[u.role]}>
@@ -504,6 +639,35 @@ export default function EquipaPage() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            {/* Falta súbita */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-amber-500 hover:text-amber-600"
+                              onClick={() => {
+                                setFaltaSubita(u);
+                                setFaltaResultado(null);
+                              }}
+                              aria-label={`Reportar falta súbita de ${u.nome}`}
+                              title="Reportar Falta Hoje"
+                            >
+                              <Siren className="h-4 w-4" />
+                            </Button>
+                            {/* Baixa prolongada / férias */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-blue-500 hover:text-blue-600"
+                              onClick={() => {
+                                setBaixaModal(u);
+                                setBaixaForm({ data_inicio: "", data_fim: "" });
+                                setBaixaResultado(null);
+                              }}
+                              aria-label={`Registar baixa ou férias de ${u.nome}`}
+                              title="Registar Baixa / Férias"
+                            >
+                              <CalendarOff className="h-4 w-4" />
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -558,6 +722,20 @@ export default function EquipaPage() {
                   setEditForm((f) => ({ ...f, email: e.target.value }))
                 }
                 required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-telefone" className="text-sm font-medium">
+                Telemóvel (WhatsApp)
+              </label>
+              <Input
+                id="edit-telefone"
+                type="tel"
+                value={editForm.telefone}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, telefone: e.target.value }))
+                }
+                placeholder="+351 912 345 678"
               />
             </div>
             <div className="space-y-1.5">
@@ -624,6 +802,14 @@ export default function EquipaPage() {
                 Útil para redefinir a password se o funcionário se esquecer.
               </p>
             </div>
+
+            {/* Folgas Semanais Fixas */}
+            <FolgasSemanaisCheckboxes
+              diasFolga={editForm.dias_folga}
+              onChange={(dias) =>
+                setEditForm((f) => ({ ...f, dias_folga: dias }))
+              }
+            />
 
             {editErro && (
               <p className="flex items-center gap-2 text-sm text-destructive">
@@ -714,6 +900,195 @@ export default function EquipaPage() {
               </>
             )}
           </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Modal de Falta Súbita */}
+      <Dialog
+        open={faltaSubita !== null}
+        onOpenChange={(o) => !o && setFaltaSubita(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle className="flex items-center gap-2">
+              <Siren className="h-5 w-5 text-amber-500" />
+              Reportar Falta Súbita
+            </DialogTitle>
+            <DialogDescription>
+              As tarefas de hoje serão redistribuídas pelos colegas disponíveis.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setFaltaSubita(null)} />
+        </DialogHeader>
+        <DialogContent className="space-y-3">
+          <p className="text-sm">
+            Reportar falta hoje para{" "}
+            <span className="font-semibold">{faltaSubita?.nome}</span>?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            As tarefas de hoje deste funcionário serão redistribuídas pelos
+            colegas disponíveis, usando o sistema de load balancing com
+            tempo de viagem. Tarefas sem ninguém disponível ficarão por atribuir.
+          </p>
+          {faltaResultado && (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-800 dark:text-amber-200">
+              {faltaResultado}
+            </div>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setFaltaSubita(null)}
+            disabled={faltaSubmitting}
+          >
+            {faltaResultado ? "Fechar" : "Cancelar"}
+          </Button>
+          {!faltaResultado && (
+            <Button
+              type="button"
+              className="bg-amber-500 text-white hover:bg-amber-600"
+              onClick={handleFaltaSubita}
+              disabled={faltaSubmitting}
+            >
+              {faltaSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A processar…
+                </>
+              ) : (
+                <>
+                  <Siren className="h-4 w-4" />
+                  Confirmar Falta
+                </>
+              )}
+            </Button>
+          )}
+        </DialogFooter>
+      </Dialog>
+
+      {/* Modal de Baixa Prolongada / Férias */}
+      <Dialog
+        open={baixaModal !== null}
+        onOpenChange={(o) => !o && setBaixaModal(null)}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarOff className="h-5 w-5 text-blue-500" />
+              Registar Baixa ou Férias
+            </DialogTitle>
+            <DialogDescription>
+              As tarefas futuras serão redistribuídas pelos colegas disponíveis.
+            </DialogDescription>
+          </div>
+          <DialogClose onClick={() => setBaixaModal(null)} />
+        </DialogHeader>
+        <DialogContent className="space-y-4">
+          {!baixaResultado ? (
+            <>
+              <p className="text-sm">
+                Registar baixa para{" "}
+                <span className="font-semibold">{baixaModal?.nome}</span>?
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="baixa-inicio" className="text-sm font-medium">
+                    Data de Início
+                  </label>
+                  <Input
+                    id="baixa-inicio"
+                    type="date"
+                    value={baixaForm.data_inicio}
+                    onChange={(e) =>
+                      setBaixaForm((f) => ({ ...f, data_inicio: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="baixa-fim" className="text-sm font-medium">
+                    Data de Fim
+                  </label>
+                  <Input
+                    id="baixa-fim"
+                    type="date"
+                    value={baixaForm.data_fim}
+                    onChange={(e) =>
+                      setBaixaForm((f) => ({ ...f, data_fim: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Todas as tarefas atribuídas a este funcionário no período serão
+                reatribuídas usando o sistema de load balancing. As que não
+                tiverem ninguém disponível ficarão por atribuir.
+              </p>
+            </>
+          ) : (
+            <div className="rounded-md bg-blue-50 dark:bg-blue-950/20 p-3 text-sm text-blue-800 dark:text-blue-200">
+              {baixaResultado}
+            </div>
+          )}
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setBaixaModal(null)}
+            disabled={baixaSubmitting}
+          >
+            {baixaResultado ? "Fechar" : "Cancelar"}
+          </Button>
+          {!baixaResultado && (
+            <Button
+              type="button"
+              className="bg-blue-500 text-white hover:bg-blue-600"
+              disabled={
+                !baixaForm.data_inicio ||
+                !baixaForm.data_fim ||
+                baixaSubmitting
+              }
+              onClick={async () => {
+                if (!baixaModal) return;
+                setBaixaSubmitting(true);
+                try {
+                  const res = await adminPost<{
+                    reatribuidas: number;
+                    orfas: number;
+                    total: number;
+                  }>(`/api/admin/equipa/${baixaModal._id}/baixa`, {
+                    data_inicio: baixaForm.data_inicio,
+                    data_fim: baixaForm.data_fim,
+                    tipo: "ferias",
+                  });
+                  setBaixaResultado(
+                    `Baixa registada. ${res.reatribuidas} tarefa(s) reatribuída(s) aos colegas, ${res.orfas} ficou(aram) por atribuir.`
+                  );
+                  await carregar();
+                } catch (e) {
+                  setBaixaResultado(
+                    e instanceof Error ? e.message : "Erro ao registar baixa."
+                  );
+                } finally {
+                  setBaixaSubmitting(false);
+                }
+              }}
+            >
+              {baixaSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  A processar…
+                </>
+              ) : (
+                <>
+                  <CalendarOff className="h-4 w-4" />
+                  Confirmar Ausência
+                </>
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </Dialog>
     </div>

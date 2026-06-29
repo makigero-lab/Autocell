@@ -1,8 +1,13 @@
-import { Clock, ClipboardList } from "lucide-react";
+"use client";
+
+import Link from "next/link";
+import { Clock, ClipboardList, LogOut, CalendarDays } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { TaskCard } from "@/components/staff/task-card";
 import { staffAtual, tarefasHoje } from "@/lib/mock-data";
+import { fazerLogout } from "@/lib/auth";
 
 /**
  * Área do Staff (/staff) — mobile-first.
@@ -44,6 +49,17 @@ export default function StaffPage() {
               </span>
             </div>
           </div>
+          {/* Botão logout */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => fazerLogout()}
+            aria-label="Terminar sessão"
+            title="Terminar sessão"
+          >
+            <LogOut className="h-5 w-5" />
+          </Button>
         </div>
 
         {/* Data + resumo */}
@@ -64,6 +80,14 @@ export default function StaffPage() {
 
       {/* Lista de tarefas */}
       <main className="flex-1 space-y-4 p-5">
+        {/* Botão Ver a minha Agenda */}
+        <Link href="/staff/calendario" prefetch>
+          <Button variant="outline" className="w-full justify-center gap-2">
+            <CalendarDays className="h-4 w-4" />
+            Ver a minha Agenda
+          </Button>
+        </Link>
+
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Tarefas de hoje
         </h2>

@@ -1,124 +1,80 @@
 /**
  * Utilitários de Autenticação (frontend) — Autocell
  *
- * Gere o token JWT no navegador EXCLUSIVAMENTE através de um **cookie**
- * (sem localStorage), de forma a que o `middleware.ts` do Next.js consiga
- * lê-lo no servidor e proteger/bloquear rotas antes de renderizar a página.
+ * v1.14.0 — Cookie HttpOnly:
+ *   O token JWT vive EXCLUSIVAMENTE num cookie httpOnly definido pelo
+ *   servidor Next.js (via /api/auth/login route handler). O browser
+ *   NÃO consegue ler o token (anti-XSS). Todas as verificações de auth
+ *   no client-side passam por fetch a /api/auth/me (proxy que lê o
+ *   cookie no servidor e consulta o backend).
  *
- *   - Cookie: `autocell_token` (SameSite=Strict, Secure, path=/, expira em
- *     7 dias — alinhado com a expiração do JWT no backend).
- *   - Funções para guardar / ler / remover (todas operam apenas o cookie).
- *   - Helper para descodificar o payload (sem verificar a assinatura — isso
- *     é responsabilidade do backend; o frontend só lê os dados para UX).
+ *   - Login: POST /api/auth/login (proxy define cookie httpOnly)
+ *   - Logout: POST /api/auth/logout (proxy limpa cookie httpOnly)
+ *   - Verificar auth: GET /api/auth/me (proxy lê cookie, consulta backend)
  *
- * Segurança (v1.13.0):
- *   - O token vive EXCLUSIVAMENTE no cookie (sem localStorage). O localStorage
- *     é vulnerável a XSS — qualquer script injetado na página conseguiria
- *     ler o token. O cookie com SameSite=Strict + Secure reduz essa superfície.
- *   - SameSite=Strict: o cookie NÃO é enviado em pedidos cross-site (mitiga
- *     CSRF). O utilizador tem de estar já no domínio para o cookie ser enviado.
- *   - Secure: o cookie só é enviado over HTTPS (em dev http://localhost o
- *     cookie não será definido — testar em https ou ajustar temporariamente).
- *   - O cookie NÃO é httpOnly porque o frontend precisa de o ler (ex.: para
- *     descodificar o payload e saber o role). A verificação real da assinatura
- *     é sempre feita pelo backend em cada pedido à API.
+ *   O middleware.ts (Edge) ainda consegue ler o cookie httpOnly diretamente
+ *   (Edge runtime tem acesso a req.cookies), pelo que a proteção de rotas
+ *   não precisa de fetch assíncrono.
  */
-
-const COOKIE_KEY = "autocell_token";
-const COOKIE_DIAS = 7;
 
 export type Role = "admin" | "manager" | "staff";
 
-export interface JwtPayload {
+export interface UtilizadorAuth {
   id: string;
+  nome: string;
+  email: string;
   role: Role;
   empresa_id: string;
-  iat?: number;
-  exp?: number;
 }
 
 /**
- * Define um cookie com nome, valor e dias de expiração.
- * Flags de segurança: SameSite=Strict (anti-CSRF) + Secure (apenas HTTPS).
+ * Consulta o backend (via proxy /api/auth/me) para saber se o utilizador
+ * está autenticado e qual o seu role. O token é lido do cookie httpOnly
+ * no servidor — o browser nunca o vê.
+ *
+ * Devolve null se não estiver autenticado (sem cookie, token inválido, etc.).
  */
-function setCookie(nome: string, valor: string, dias: number): void {
-  if (typeof document === "undefined") return;
-  const expires = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toUTCString();
-  document.cookie = `${nome}=${encodeURIComponent(valor)}; expires=${expires}; path=/; SameSite=Strict; Secure`;
-}
-
-/** Lê um cookie pelo nome (ou null se não existir). */
-function getCookie(nome: string): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie
-    .split("; ")
-    .find((c) => c.startsWith(`${nome}=`));
-  if (!match) return null;
-  return decodeURIComponent(match.slice(nome.length + 1));
-}
-
-/** Remove um cookie (mesmas flags de segurança para garantir a sobreposição). */
-function deleteCookie(nome: string): void {
-  if (typeof document === "undefined") return;
-  document.cookie = `${nome}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict; Secure`;
-}
-
-/** Guarda o token EXCLUSIVAMENTE no cookie (sem localStorage). */
-export function guardarToken(token: string): void {
-  if (typeof window === "undefined") return;
-  setCookie(COOKIE_KEY, token, COOKIE_DIAS);
-}
-
-/** Lê o token do cookie (ou null se não existir). */
-export function lerToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return getCookie(COOKIE_KEY);
-}
-
-/** Remove o token (apenas o cookie). */
-export function removerToken(): void {
-  if (typeof window === "undefined") return;
-  deleteCookie(COOKIE_KEY);
-}
-
-/**
- * Descodifica o payload do JWT (parte do meio, base64url).
- * Não verifica a assinatura — apenas para leitura de dados no cliente.
- * Devolve null se o token for inválido ou estiver expirado.
- */
-export function lerUtilizadorDoToken(): JwtPayload | null {
-  const token = lerToken();
-  if (!token) return null;
-
-  const partes = token.split(".");
-  if (partes.length !== 3) return null;
-
+export async function lerUtilizador(): Promise<UtilizadorAuth | null> {
   try {
-    // base64url -> base64 -> JSON
-    const base64 = partes[1].replace(/-/g, "+").replace(/_/g, "/");
-    const json = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-        .join("")
-    );
-    const payload = JSON.parse(json) as JwtPayload;
+    const res = await fetch("/api/auth/me", {
+      cache: "no-store",
+      credentials: "include",
+    });
 
-    // Verifica expiração (exp em segundos Unix).
-    if (payload.exp && Date.now() >= payload.exp * 1000) {
-      removerToken();
-      return null;
-    }
+    if (!res.ok) return null;
 
-    return payload;
+    const data = await res.json();
+    if (!data?.utilizador) return null;
+
+    return data.utilizador as UtilizadorAuth;
   } catch {
     return null;
   }
 }
 
-/** True se houver token válido (não expirado). */
-export function estaAutenticado(): boolean {
-  return lerUtilizadorDoToken() !== null;
+/** True se o utilizador estiver autenticado (verifica via /api/auth/me). */
+export async function estaAutenticado(): Promise<boolean> {
+  return (await lerUtilizador()) !== null;
+}
+
+/**
+ * Termina a sessão do utilizador.
+ *
+ * Chama a rota de API /api/auth/logout (que limpa o cookie httpOnly no
+ * servidor) e depois redireciona o browser para /login.
+ *
+ * Usa `window.location.href` (em vez de router.push) para garantir que
+ * o estado do cliente é totalmente limpo (sem cache de dados do utilizador
+ * anterior).
+ */
+export async function fazerLogout(): Promise<void> {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Mesmo que o fetch falhe, tentamos redirecionar (o middleware vai
+    // bloquear o acesso às páginas privadas sem cookie).
+  }
+  window.location.href = "/login";
 }
 
 /**
@@ -131,4 +87,52 @@ export function rotaPorRole(role: Role): string {
   if (role === "admin") return "/admin";
   if (role === "manager") return "/manager";
   return "/staff";
+}
+
+/* ------------------------------------------------------------------ */
+/* Funções legacy (mantidas para compatibilidade do middleware.ts Edge) */
+/* ------------------------------------------------------------------ */
+// O middleware.ts (Edge) ainda lê o cookie httpOnly diretamente via
+// req.cookies.get() — não precisa de fetch. Estas funções são usadas
+// APENAS pelo middleware e permanecem síncronas.
+
+export interface JwtPayload {
+  id: string;
+  role: Role;
+  empresa_id: string;
+  iat?: number;
+  exp?: number;
+}
+
+/**
+ * Descodifica o payload do JWT a partir de uma string de token.
+ * Usado pelo middleware.ts (Edge) que lê o cookie httpOnly diretamente.
+ * NÃO faz fetch — recebe o token já extraído do cookie pelo middleware.
+ *
+ * Devolve null se o token for inválido ou estiver expirado.
+ */
+export function descodificarToken(token: string): JwtPayload | null {
+  if (!token) return null;
+
+  const partes = token.split(".");
+  if (partes.length !== 3) return null;
+
+  try {
+    const base64 = partes[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const payload = JSON.parse(json) as JwtPayload;
+
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }

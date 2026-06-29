@@ -18,6 +18,7 @@ const webhookRoutes = require('./routes/webhookRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const ausenciaRoutes = require('./routes/ausenciaRoutes');
+const { iniciarDailyBriefing } = require('./jobs/dailyBriefing');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -25,9 +26,15 @@ const PORT = process.env.PORT || 5000;
 /* ------------------------------------------------------------------ */
 /* Middlewares                                                         */
 /* ------------------------------------------------------------------ */
-// Permite pedidos cross-origin (ex.: frontend na Vercel a falar com a
-// API alojada no Render).
-app.use(cors());
+// CORS — TRANCADO: aceita apenas a origem do frontend definida em env.
+// credentials: true para permitir cookies cross-origin (quando necessário).
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+app.use(
+  cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+  })
+);
 
 // Permite receber e enviar JSON no corpo dos pedidos.
 app.use(express.json());
@@ -56,28 +63,43 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/ausencias', ausenciaRoutes);
 
 /* ------------------------------------------------------------------ */
+/* Middleware global de tratamento de erros                            */
+/* ------------------------------------------------------------------ */
+// Captura exceções não tratadas (erros síncronos lançados após next(err)
+// ou erros assíncronos não apanhados por try/catch). Devolve um JSON
+// padrão sem vazar a stack trace para o cliente (segurança).
+// Deve ser o ÚLTIMO middleware registado (depois de todas as rotas).
+app.use((err, req, res, next) => {
+  console.error('❌ Erro não tratado:', err.message);
+  // Log completo no servidor (para debug), mas NÃO enviar ao cliente.
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(err.stack);
+  }
+  return res.status(err.status || 500).json({
+    erro: err.status ? err.message : 'Erro interno do servidor.',
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Exporta a app para testes (supertest)                              */
 /* ------------------------------------------------------------------ */
-// Permite que os testes importem a app SEM iniciar o servidor HTTP nem
-// ligar ao MongoDB (evita conflitos de portas e dependência de BD).
 module.exports = app;
 
 /* ------------------------------------------------------------------ */
 /* Arranque do servidor (apenas em execução direta)                   */
 /* ------------------------------------------------------------------ */
-// Só liga ao MongoDB e abre a porta HTTP quando o ficheiro é executado
-// diretamente (node server.js / npm start). Nos testes (require('./server')),
-// este bloco NÃO corre — a app é importada apenas para supertest.
 if (require.main === module) {
   mongoose
     .connect(process.env.MONGODB_URI)
     .then(() => {
       console.log('✅ Ligado ao MongoDB com sucesso.');
-
-      // Só iniciamos o servidor HTTP depois de garantir a ligação à BD.
       app.listen(PORT, () => {
         console.log(`🚀 Servidor a correr na porta ${PORT}.`);
       });
+
+      // Inicia o cron job do Daily Briefing (WhatsApp) — só em execução
+      // direta, não nos testes. Corre todos os dias às 08:00.
+      iniciarDailyBriefing();
     })
     .catch((err) => {
       console.error('❌ Erro ao ligar ao MongoDB:', err.message);

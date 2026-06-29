@@ -2,24 +2,21 @@
  * Middleware de Proteção de Rotas — Autocell (Next.js)
  *
  * Executado no Edge (servidor) antes de renderizar qualquer página. Lê o
- * cookie `autocell_token` (definido em lib/auth.ts após o login) e:
+ * cookie httpOnly `autocell_token` (o Edge consegue ler cookies httpOnly
+ * via req.cookies) e descodifica o payload para saber o role.
  *
  *   1. **Rotas privadas** (`/admin/*`, `/manager/*`, `/staff/*`):
- *      - Sem token      → redireciona para /login
+ *      - Sem token → redireciona para /login
  *      - Token inválido → redireciona para /login
- *      - Token válido   → deixa passar
- *        (se o role não corresponder à área → redireciona para o painel certo)
+ *      - Token válido + role errado → redireciona para o painel correto
  *
  *   2. **Rotas públicas para autenticados** (`/`, `/login`):
  *      - Com token válido → redireciona para o painel do role
- *        (admin → /admin, manager → /manager, staff → /staff)
- *      - Sem token        → deixa passar (mostra a landing/login)
+ *      - Sem token → deixa passar
  *
- *   3. **Outras rotas**: passa sem interferir.
- *
- * NOTA: o middleware NÃO verifica a assinatura do JWT (isso exigiria o
- * segredo no edge, o que é arriscado). A verificação real é feita pelo backend
- * em cada pedido à API. Aqui só validamos o formato e a expiração (exp).
+ * NOTA: o middleware NÃO verifica a assinatura do JWT (seria arriscado no
+ * Edge). Valida apenas formato + expiração. A verificação real é feita pelo
+ * backend (ou pelo proxy /api/admin/[...path]) em cada pedido à API.
  */
 
 import { NextResponse } from "next/server";
@@ -36,27 +33,16 @@ interface JwtPayload {
   exp?: number;
 }
 
-/** Lê o token do cookie (servidor). */
-function lerTokenDoCookie(req: NextRequest): string | null {
-  const token = req.cookies.get(TOKEN_COOKIE)?.value;
-  return token ?? null;
-}
-
-/**
- * Descodifica o payload do JWT (base64url) SEM verificar a assinatura.
- * Devolve null se inválido ou expirado.
- */
+/** Descodifica o payload do JWT (base64url) SEM verificar a assinatura. */
 function descodificarToken(token: string): JwtPayload | null {
   const partes = token.split(".");
   if (partes.length !== 3) return null;
 
   try {
-    // base64url -> base64 -> JSON (compatível com Edge)
     const base64 = partes[1].replace(/-/g, "+").replace(/_/g, "/");
     const json = atob(base64);
     const payload = JSON.parse(json) as JwtPayload;
 
-    // Verifica expiração (exp em segundos Unix).
     if (payload.exp && Date.now() >= payload.exp * 1000) {
       return null;
     }
@@ -75,7 +61,7 @@ function rotaPorRole(role: Role): string {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const token = lerTokenDoCookie(req);
+  const token = req.cookies.get(TOKEN_COOKIE)?.value ?? null;
   const payload = token ? descodificarToken(token) : null;
   const autenticado = payload !== null && !!payload.role;
 
@@ -84,16 +70,19 @@ export function middleware(req: NextRequest) {
   const isManager = pathname === "/manager" || pathname.startsWith("/manager/");
   const isStaff = pathname === "/staff" || pathname.startsWith("/staff/");
 
+  // Não aplicar proteção às rotas /api/* (são proxy routes, têm a sua própria lógica).
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
   if (isAdmin || isManager || isStaff) {
     if (!autenticado) {
-      // Sem token válido → /login (preserva a rota pretendida em ?from=).
       const loginUrl = req.nextUrl.clone();
       loginUrl.pathname = "/login";
       loginUrl.search = `?from=${encodeURIComponent(pathname)}`;
       return NextResponse.redirect(loginUrl);
     }
 
-    // Token válido: verifica se o role corresponde à área.
     const role = payload!.role!;
     const rotaEsperada = rotaPorRole(role);
     const rotaErrada =
@@ -122,9 +111,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  /**
-   * Aplica o middleware apenas às rotas relevantes (ignora _next, api,
-   * ficheiros estáticos, etc.).
-   */
   matcher: ["/", "/login", "/admin/:path*", "/manager/:path*", "/staff/:path*"],
 };
