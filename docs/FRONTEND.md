@@ -105,7 +105,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (dourado). Toggle de tema (claro/escuro) no fundo.
 - **Dashboard** (`/admin`): cartões de estatística em tempo real (Propriedades, Staff ativo, Tarefas hoje, Por atribuir, Concluídas) + estado da equipa com carga de trabalho (`GET /api/admin/dashboard`).
-- **Propriedades** (`/admin/propriedades`): CRUD completo (criar + **editar** + toggle ativo/inativo) + morada com geocoding automático (re-geocoding ao editar). Modal de edição com Nome, Smoobu ID, Morada e Tempo de Limpeza.
+- **Propriedades** (`/admin/propriedades`): CRUD completo (criar + **editar** + toggle ativo/inativo) + morada com geocoding automático (re-geocoding ao editar). Modal de edição com Nome, Smoobu ID, Morada e Tempo de Limpeza. Formulário de criação tem **dropdown de apartamentos do Smoobu** (carregado via `GET /api/admin/smoobu/propriedades`) — ao escolher, o `smoobu_id` e o `nome` são preenchidos automaticamente (fallback manual se a API key não estiver configurada).
 - **Tarefas** (`/admin/tarefas`): gestão manual (criar + atribuir + cancelar) + botão de exportação CSV + paginação client-side. Botão **"Sincronizar Smoobu"** (ícone Download) que faz pull das reservas futuras via REST API (`POST /api/admin/smoobu/sincronizar`) — idempotente, mostra feedback de sucesso/erro e atualiza a grelha.
 - **Equipa** (`/admin/equipa`): CRUD completo + folgas fixas semanais + telefone + botão Falta Súbita + botão Baixa/Férias + paginação client-side.
 - **Calendário de Folgas** (`/admin/calendario`): grelha mensal estilo Google Calendar com tarefas + ausências + modal de detalhe.

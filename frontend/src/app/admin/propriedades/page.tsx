@@ -53,6 +53,14 @@ export default function PropriedadesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
 
+  // Lista de apartamentos do Smoobu (para o dropdown no formulário de criação).
+  // Carregada via GET /api/admin/smoobu/propriedades quando o formulário abre.
+  const [propriedadesSmoobu, setPropriedadesSmoobu] = useState<
+    { id: string | number; name: string }[]
+  >([]);
+  const [smoobuLoading, setSmoobuLoading] = useState(false);
+  const [smoobuErro, setSmoobuErro] = useState<string | null>(null);
+
   /** Carrega as propriedades da API. */
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -72,6 +80,35 @@ export default function PropriedadesPage() {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  /** Carrega a lista de apartamentos do Smoobu (para o dropdown). */
+  const carregarSmoobu = useCallback(async () => {
+    // Só carrega se ainda não foi carregado (evita pedidos repetidos).
+    if (propriedadesSmoobu.length > 0) return;
+    setSmoobuLoading(true);
+    setSmoobuErro(null);
+    try {
+      const data = await adminGet<{ propriedadesSmoobu: { id: string | number; name: string }[] }>(
+        "/api/admin/smoobu/propriedades"
+      );
+      setPropriedadesSmoobu(data.propriedadesSmoobu ?? []);
+    } catch (e) {
+      setSmoobuErro(
+        e instanceof Error
+          ? `Não foi possível carregar os apartamentos do Smoobu: ${e.message}`
+          : "Erro ao carregar apartamentos do Smoobu."
+      );
+    } finally {
+      setSmoobuLoading(false);
+    }
+  }, [propriedadesSmoobu.length]);
+
+  // Quando o formulário abre, carrega a lista do Smoobu (se ainda não foi).
+  useEffect(() => {
+    if (mostrarForm) {
+      carregarSmoobu();
+    }
+  }, [mostrarForm, carregarSmoobu]);
 
   /** Submete o formulário de nova propriedade. */
   async function handleSubmeter(e: React.FormEvent) {
@@ -244,17 +281,62 @@ export default function PropriedadesPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="smoobu_id" className="text-sm font-medium">
-                    Smoobu ID
+                    Apartamento do Smoobu
                   </label>
-                  <Input
-                    id="smoobu_id"
-                    value={form.smoobu_id}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, smoobu_id: e.target.value }))
-                    }
-                    placeholder="Ex.: 67890"
-                    required
-                  />
+                  {smoobuLoading ? (
+                    <div className="flex h-9 items-center gap-2 rounded-md border border-input px-3 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      A carregar do Smoobu…
+                    </div>
+                  ) : smoobuErro ? (
+                    <>
+                      <Input
+                        id="smoobu_id"
+                        value={form.smoobu_id}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, smoobu_id: e.target.value }))
+                        }
+                        placeholder="Ex.: 67890 (fallback manual)"
+                        required
+                      />
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        {smoobuErro} Podes inserir o ID manualmente.
+                      </p>
+                    </>
+                  ) : (
+                    <select
+                      id="smoobu_id"
+                      value={form.smoobu_id}
+                      onChange={(e) => {
+                        const idEscolhido = e.target.value;
+                        // Encontra o apartamento escolhido para preencher o nome.
+                        const apto = propriedadesSmoobu.find(
+                          (p) => String(p.id) === idEscolhido
+                        );
+                        setForm((f) => ({
+                          ...f,
+                          smoobu_id: idEscolhido,
+                          // Preenche o nome automaticamente se o utilizador ainda
+                          // não o tiver editado (poupa tempo). Se já escreveu algo
+                          // custom, respeita — mas o comportamento padrão é usar o
+                          // nome do Smoobu.
+                          nome: apto?.name ?? f.nome,
+                        }));
+                      }}
+                      required
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <option value="">Seleciona um apartamento…</option>
+                      {propriedadesSmoobu.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {p.name} (ID: {p.id})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Lista carregada do Smoobu. Ao escolher, o nome é preenchido automaticamente.
+                  </p>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <label htmlFor="morada" className="text-sm font-medium">
