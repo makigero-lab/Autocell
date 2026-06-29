@@ -9,6 +9,8 @@ import {
   RefreshCw,
   UserCheck,
   SprayCan,
+  Download,
+  CheckCircle2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -204,6 +206,44 @@ export default function AdminTarefasPage() {
     }
   }
 
+  // Estado da sincronização Smoobu (pull de reservas futuras via REST API).
+  const [sincronizando, setSincronizando] = useState(false);
+  const [sincronizacaoOk, setSincronizacaoOk] = useState<string | null>(null);
+
+  /** Sincroniza reservas futuras do Smoobu e recarrega a grelha. */
+  async function handleSincronizarSmoobu() {
+    setSincronizando(true);
+    setSincronizacaoOk(null);
+    setErro(null);
+    try {
+      const res = await adminPost<{
+        totalRecebidas: number;
+        importadas: number;
+        criadas: number;
+        existentes: number;
+        erros: number;
+        detalheErros: { reservaId: string | null; erro: string }[];
+      }>("/api/admin/smoobu/sincronizar", {});
+
+      let msg = `Sincronização concluída! ${res.criadas} tarefa(s) gerada(s)`;
+      if (res.existentes > 0) msg += `, ${res.existentes} já existiam`;
+      if (res.erros > 0) msg += `, ${res.erros} com erro`;
+      msg += `.`;
+      setSincronizacaoOk(msg);
+
+      // Atualiza a grelha de tarefas para mostrar as novas.
+      await carregar();
+    } catch (e) {
+      setErro(
+        e instanceof Error
+          ? `Sincronização falhou: ${e.message}`
+          : "Erro ao sincronizar com o Smoobu."
+      );
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-6 lg:p-8">
       {/* Cabeçalho */}
@@ -215,8 +255,27 @@ export default function AdminTarefasPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={carregar} disabled={loading} aria-label="Atualizar">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={carregar}
+            disabled={loading}
+            aria-label="Atualizar"
+          >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSincronizarSmoobu}
+            disabled={sincronizando}
+            title="Vai buscar as reservas futuras ao Smoobu e cria as tarefas de limpeza. Idempotente — não cria duplicados."
+          >
+            {sincronizando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Sincronizar Smoobu</span>
           </Button>
           <Button onClick={() => setMostrarForm((v) => !v)}>
             <Plus className="h-4 w-4" />
@@ -296,6 +355,24 @@ export default function AdminTarefasPage() {
             <AlertCircle className="h-5 w-5 shrink-0" />
             <span>{erro}</span>
             <Button variant="outline" size="sm" onClick={carregar} className="ml-auto">Tentar novamente</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sucesso da sincronização Smoobu */}
+      {sincronizacaoOk && (
+        <Card className="border-emerald-500/50">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <span>{sincronizacaoOk}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSincronizacaoOk(null)}
+              className="ml-auto"
+            >
+              Fechar
+            </Button>
           </CardContent>
         </Card>
       )}
