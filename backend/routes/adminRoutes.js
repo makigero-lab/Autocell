@@ -26,6 +26,7 @@ const router = express.Router();
 
 const { auth } = require('../middleware/auth');
 const {
+  getDashboard,
   getPropriedades,
   criarPropriedade,
   alternarEstadoPropriedade,
@@ -43,6 +44,9 @@ const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
+
+// Dashboard com dados reais.
+router.get('/dashboard', auth, getDashboard);
 
 // Gestão de propriedades da empresa. PROTEGIDO por JWT.
 router.get('/propriedades', auth, getPropriedades);

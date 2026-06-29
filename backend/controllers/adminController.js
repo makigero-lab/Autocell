@@ -53,6 +53,110 @@ exports.obterEmpresaId = obterEmpresaId;
 /* ------------------------------------------------------------------ */
 
 /**
+ * GET /api/admin/dashboard
+ * Devolve estatísticas em tempo real para o dashboard do admin.
+ *
+ * Resposta 200: {
+ *   totalPropriedades, propriedadesAtivas,
+ *   membrosEquipaAtivos, tarefasHoje, tarefasPorAtribuir,
+ *   tarefasConcluidasHoje, tarefasPorStaff: [{ nome, tarefas, carga_minutos }]
+ * }
+ */
+exports.getDashboard = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    // Datas de hoje (UTC).
+    const agora = new Date();
+    const hojeInicio = new Date(
+      Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+    );
+    const amanhaInicio = new Date(hojeInicio.getTime() + 24 * 60 * 60 * 1000);
+
+    // Contagens em paralelo.
+    const [
+      totalPropriedades,
+      propriedadesAtivas,
+      membrosEquipaAtivos,
+      tarefasHoje,
+      tarefasPorAtribuir,
+      tarefasConcluidasHoje,
+    ] = await Promise.all([
+      Propriedade.countDocuments({ empresa_id: empresaId }),
+      Propriedade.countDocuments({ empresa_id: empresaId, ativo: true }),
+      Utilizador.countDocuments({
+        empresa_id: empresaId,
+        role: { $in: ['staff', 'manager'] },
+        ativo: true,
+        eliminado_em: null,
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: { $ne: 'cancelada' },
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: 'por_atribuir',
+      }),
+      Tarefa.countDocuments({
+        empresa_id: empresaId,
+        data: { $gte: hojeInicio, $lt: amanhaInicio },
+        estado: 'concluida',
+      }),
+    ]);
+
+    // Carga por staff (aggregate).
+    const cargasPorStaff = await Tarefa.aggregate([
+      {
+        $match: {
+          empresa_id: new mongoose.Types.ObjectId(empresaId),
+          data: { $gte: hojeInicio, $lt: amanhaInicio },
+          estado: { $nin: ['cancelada', 'concluida'] },
+          utilizador_id: { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: '$utilizador_id',
+          tarefas: { $sum: 1 },
+          carga_minutos: { $sum: '$tempo_limpeza_minutos' },
+        },
+      },
+    ]);
+
+    // Popula nomes dos staff.
+    const staffIds = cargasPorStaff.map((c) => c._id);
+    const staffInfo = await Utilizador.find({ _id: { $in: staffIds } })
+      .select('nome')
+      .lean();
+    const staffMap = new Map(staffInfo.map((s) => [String(s._id), s.nome]));
+
+    const tarefasPorStaff = cargasPorStaff.map((c) => ({
+      utilizador_id: String(c._id),
+      nome: staffMap.get(String(c._id)) ?? '?',
+      tarefas: c.tarefas,
+      carga_minutos: c.carga_minutos,
+    }));
+
+    return res.status(200).json({
+      totalPropriedades,
+      propriedadesAtivas,
+      membrosEquipaAtivos,
+      tarefasHoje,
+      tarefasPorAtribuir,
+      tarefasConcluidasHoje,
+      tarefasPorStaff,
+    });
+  } catch (err) {
+    console.error('❌ getDashboard:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
  * GET /api/admin/propriedades
  * Devolve as propriedades dessa empresa.
  */
