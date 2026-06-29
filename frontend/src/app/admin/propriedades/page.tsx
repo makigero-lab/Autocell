@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Building2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { Plus, Building2, Loader2, AlertCircle, RefreshCw, Power } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
 import {
   adminGet,
   adminPost,
+  adminPatch,
   type PropriedadeDTO,
 } from "@/lib/api";
 
@@ -94,6 +95,23 @@ export default function PropriedadesPage() {
       setFormErro(e instanceof Error ? e.message : "Erro ao criar propriedade.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Alterna ativo/inativo com otimismo. */
+  async function handleToggleAtivo(p: PropriedadeDTO) {
+    // Otimismo: atualiza UI imediatamente.
+    setPropriedades((prev) =>
+      prev.map((x) => (x._id === p._id ? { ...x, ativo: !x.ativo } : x))
+    );
+    try {
+      await adminPatch(`/api/admin/propriedades/${p._id}/estado`);
+    } catch (e) {
+      // Reverte em caso de erro.
+      setPropriedades((prev) =>
+        prev.map((x) => (x._id === p._id ? { ...x, ativo: p.ativo } : x))
+      );
+      setErro(e instanceof Error ? e.message : "Erro ao alterar estado.");
     }
   }
 
@@ -279,11 +297,12 @@ export default function PropriedadesPage() {
                     <th className="px-4 py-3 font-medium">Smoobu ID</th>
                     <th className="px-4 py-3 font-medium">Tempo de Limpeza</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
+                    <th className="px-4 py-3 text-right font-medium">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {propriedades.map((p) => (
-                    <tr key={p._id} className="hover:bg-muted/30">
+                    <tr key={p._id} className={`hover:bg-muted/30 ${!p.ativo ? "opacity-60" : ""}`}>
                       <td className="px-4 py-3">
                         <div className="font-medium">{p.nome}</div>
                         {p.morada && (
@@ -300,6 +319,20 @@ export default function PropriedadesPage() {
                         <Badge variant={p.ativo ? "success" : "secondary"}>
                           {p.ativo ? "Ativo" : "Inativo"}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleToggleAtivo(p)}
+                            aria-label={p.ativo ? "Desativar" : "Ativar"}
+                            title={p.ativo ? "Desativar" : "Ativar"}
+                          >
+                            <Power className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
