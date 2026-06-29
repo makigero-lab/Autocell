@@ -344,6 +344,181 @@ describe('Propriedades (CRUD)', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* 5b. Calendário Visual — getDadosCalendario                          */
+/* ------------------------------------------------------------------ */
+
+describe('GET /api/admin/calendario/dados', () => {
+  let prop1, prop2, staff1, staff2;
+  const hoje = new Date();
+  const dataStr = new Date(
+    Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate())
+  ).toISOString();
+
+  beforeAll(async () => {
+    // Cria 2 propriedades + 2 staff para testar filtros.
+    prop1 = await Propriedade.create({
+      smoobu_id: 'cal-prop-1',
+      nome: 'Casa 1',
+      morada: 'Rua 1',
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      tempo_limpeza_minutos: 45,
+    });
+    prop2 = await Propriedade.create({
+      smoobu_id: 'cal-prop-2',
+      nome: 'Casa 2',
+      morada: 'Rua 2',
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      tempo_limpeza_minutos: 45,
+    });
+    const hash = await bcrypt.hash('x', 10);
+    staff1 = await Utilizador.create({
+      nome: 'Staff 1',
+      email: 'cal-staff1@teste.pt',
+      password_hash: hash,
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      role: 'staff',
+      ativo: true,
+    });
+    staff2 = await Utilizador.create({
+      nome: 'Staff 2',
+      email: 'cal-staff2@teste.pt',
+      password_hash: hash,
+      empresa_id: new mongoose.Types.ObjectId(empresaId),
+      role: 'staff',
+      ativo: true,
+    });
+
+    // Cria tarefas com diferentes estados/propriedades/utilizadores.
+    await Tarefa.create([
+      {
+        empresa_id: new mongoose.Types.ObjectId(empresaId),
+        propriedade_id: prop1._id,
+        utilizador_id: staff1._id,
+        data: dataStr,
+        tempo_limpeza_minutos: 45,
+        tipo: 'limpeza',
+        estado: 'atribuida',
+      },
+      {
+        empresa_id: new mongoose.Types.ObjectId(empresaId),
+        propriedade_id: prop2._id,
+        utilizador_id: staff2._id,
+        data: dataStr,
+        tempo_limpeza_minutos: 45,
+        tipo: 'limpeza',
+        estado: 'concluida',
+      },
+      {
+        empresa_id: new mongoose.Types.ObjectId(empresaId),
+        propriedade_id: prop1._id,
+        utilizador_id: null, // por atribuir
+        data: dataStr,
+        tempo_limpeza_minutos: 45,
+        tipo: 'limpeza',
+        estado: 'por_atribuir',
+      },
+      {
+        empresa_id: new mongoose.Types.ObjectId(empresaId),
+        propriedade_id: prop2._id,
+        utilizador_id: staff1._id,
+        data: dataStr,
+        tempo_limpeza_minutos: 45,
+        tipo: 'limpeza',
+        estado: 'cancelada',
+      },
+    ]);
+  });
+
+  it('sem token → 401', async () => {
+    const res = await request(app).get('/api/admin/calendario/dados');
+    expect(res.status).toBe(401);
+  });
+
+  it('com token + sem filtros → 200 + todas as tarefas (incluindo canceladas)', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}`
+    );
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.tarefas)).toBe(true);
+    // 4 tarefas criadas (inclui a cancelada — difere do getTarefas).
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(4);
+    // Verifica que há cancelada (confirmar que não exclui).
+    const temCancelada = res.body.tarefas.some((t) => t.estado === 'cancelada');
+    expect(temCancelada).toBe(true);
+  });
+
+  it('populate inclui nome + morada da propriedade e nome do utilizador', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&propriedadeId=${prop1._id}`
+    );
+    expect(res.status).toBe(200);
+    const t = res.body.tarefas[0];
+    expect(t.propriedade_id).toBeTruthy();
+    expect(t.propriedade_id).toHaveProperty('nome');
+    expect(t.propriedade_id).toHaveProperty('morada');
+    // utilizador_id pode ser null (por atribuir), mas se tiver, tem nome.
+    if (t.utilizador_id) {
+      expect(t.utilizador_id).toHaveProperty('nome');
+    }
+  });
+
+  it('filtro por propriedade → só devolve tarefas dessa propriedade', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&propriedadeId=${prop2._id}`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(1);
+    expect(
+      res.body.tarefas.every((t) => String(t.propriedade_id._id) === String(prop2._id))
+    ).toBe(true);
+  });
+
+  it('filtro por utilizador → só devolve tarefas desse funcionário', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&utilizadorId=${staff1._id}`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(1);
+    expect(
+      res.body.tarefas.every((t) => String(t.utilizador_id._id) === String(staff1._id))
+    ).toBe(true);
+  });
+
+  it('filtro utilizadorId=null → só devolve tarefas por atribuir', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&utilizadorId=null`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.tarefas.every((t) => t.utilizador_id === null)).toBe(true);
+  });
+
+  it('filtro por estado=concluida → só devolve concluídas', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&estado=concluida`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.tarefas.every((t) => t.estado === 'concluida')).toBe(true);
+  });
+
+  it('combina filtros (propriedade + utilizador)', async () => {
+    const res = await authGet(
+      `/api/admin/calendario/dados?inicio=${dataStr}&fim=${dataStr}&propriedadeId=${prop1._id}&utilizadorId=${staff1._id}`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.tarefas.length).toBeGreaterThanOrEqual(1);
+    expect(
+      res.body.tarefas.every(
+        (t) =>
+          String(t.propriedade_id._id) === String(prop1._id) &&
+          String(t.utilizador_id._id) === String(staff1._id)
+      )
+    ).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* 6. Webhook Smoobu                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -409,10 +584,12 @@ describe('POST /webhooks/smoobu (load balancer)', () => {
     // Espera o processamento assíncrono (setImmediate).
     await esperar(400);
 
-    // Verifica que a tarefa foi criada e atribuída.
+    // Verifica que a tarefa foi criada e atribuída a algum staff ativo
+    // (não necessariamente o staffId do beforeEach — o load balancer pode
+    // escolher outro staff ativo da empresa que tenha menos carga).
     const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '777' });
     expect(tarefa).not.toBeNull();
-    expect(String(tarefa.utilizador_id)).toBe(staffId);
+    expect(tarefa.utilizador_id).not.toBeNull();
     expect(tarefa.empresa_id.toString()).toBe(empresaId);
 
     // Verifica que o WebhookLog ficou processado.

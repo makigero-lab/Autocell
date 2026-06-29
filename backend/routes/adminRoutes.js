@@ -32,6 +32,7 @@ const {
   atualizarPropriedade,
   alternarEstadoPropriedade,
   getTarefas,
+  getDadosCalendario,
   getEquipa,
   criarMembroEquipa,
   atualizarMembroEquipa,
@@ -62,6 +63,9 @@ router.patch('/propriedades/:id/estado', auth, alternarEstadoPropriedade);
 
 // Calendário Geral de Operações — lista tarefas com filtro de datas.
 router.get('/tarefas', auth, getTarefas);
+
+// Calendário Visual Avançado — endpoint unificado com filtros + populate.
+router.get('/calendario/dados', auth, getDadosCalendario);
 
 // Exportação CSV de tarefas.
 router.get('/tarefas/export', auth, exportarTarefasCSV);

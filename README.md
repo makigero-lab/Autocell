@@ -81,6 +81,7 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 | `PATCH`| `/api/admin/propriedades/:id/estado` | Ativa/desativa propriedade (webhook ignora inativas). **Auth:** JWT. |
 | `PUT` | `/api/admin/propriedades/:id` | Atualiza propriedade (nome, smoobu_id, morada, tempo). Re-faz geocoding se morada mudar. **Auth:** JWT. |
 | `GET`  | `/api/admin/tarefas` | Lista tarefas (calendário de operações). Query: `?inicio=&fim=`. **Auth:** JWT. |
+| `GET`  | `/api/admin/calendario/dados` | Endpoint unificado para Calendário Visual Avançado. Filtros: `?inicio=&fim=&propriedadeId=&utilizadorId=&estado=`. Populate propriedade (nome+morada) + utilizador (nome). **Auth:** JWT. |
 | `GET`  | `/api/admin/tarefas/export` | Exportação CSV de tarefas. Query: `?inicio=&fim=`. **Auth:** JWT. |
 | `POST` | `/api/admin/tarefas` | Cria tarefa manualmente. **Auth:** JWT. |
 | `PATCH`| `/api/admin/tarefas/:id/atribuir` | Atribui tarefa a um funcionário. **Auth:** JWT. |

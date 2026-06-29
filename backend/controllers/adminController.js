@@ -342,6 +342,107 @@ exports.getTarefas = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/admin/calendario/dados
+ *
+ * Endpoint unificado para alimentar a página de Calendário Visual Avançado.
+ * Devolve as tarefas da empresa num intervalo de datas, com filtros
+ * opcionais e populate de propriedade (nome + morada) e utilizador (nome).
+ *
+ * Query params:
+ *   - inicio        (yyyy-mm-dd | ISO) — início do período (obrigatório na prática)
+ *   - fim           (yyyy-mm-dd | ISO) — fim do período (inclusive)
+ *   - propriedadeId (ObjectId)         — filtra por propriedade (opcional)
+ *   - utilizadorId  (ObjectId)         — filtra por funcionário (opcional)
+ *   - estado        (string)           — filtra por estado (opcional):
+ *                                        por_atribuir | atribuida | em_curso |
+ *                                        concluida | cancelada
+ *
+ * Notas:
+ *   - Diferente do getTarefas, NÃO exclui canceladas por defeito (o calendário
+ *     pode querer mostrá-las a tracejado). O utilizador pode excluí-las com
+ *     ?estado=atribuida (ou outro).
+ *   - Populate inclui `morada` (para tooltip/info no calendário) e `coordenadas`
+ *     (para futuro mapa de rotas).
+ *
+ * Resposta 200: { tarefas: [...] }
+ */
+exports.getDadosCalendario = async (req, res) => {
+  try {
+    const { ok, empresaId } = obterEmpresaId(req, res);
+    if (!ok) return;
+
+    const { inicio, fim, propriedadeId, utilizadorId, estado } = req.query;
+
+    // Filtro base: empresa do utilizador autenticado.
+    const filtro = { empresa_id: empresaId };
+
+    // Filtro por intervalo de datas [inicio, fim] (fim inclusive).
+    if (inicio || fim) {
+      const dataFiltro = {};
+      if (inicio) {
+        const d = new Date(inicio);
+        if (!isNaN(d.getTime())) {
+          dataFiltro.$gte = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+          );
+        }
+      }
+      if (fim) {
+        const d = new Date(fim);
+        if (!isNaN(d.getTime())) {
+          // Inclui o dia inteiro (até meia-noite do dia seguinte).
+          dataFiltro.$lt = new Date(
+            Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) +
+              24 * 60 * 60 * 1000
+          );
+        }
+      }
+      if (Object.keys(dataFiltro).length > 0) {
+        filtro.data = dataFiltro;
+      }
+    }
+
+    // Filtro opcional por propriedade.
+    if (propriedadeId && mongoose.isValidObjectId(propriedadeId)) {
+      filtro.propriedade_id = propriedadeId;
+    }
+
+    // Filtro opcional por utilizador (funcionário).
+    // Nota: utilizadorId pode ser 'null' (string) para filtrar tarefas por atribuir.
+    if (utilizadorId !== undefined && utilizadorId !== null && utilizadorId !== '') {
+      if (utilizadorId === 'null' || utilizadorId === 'sem_atribuicao') {
+        filtro.utilizador_id = null;
+      } else if (mongoose.isValidObjectId(utilizadorId)) {
+        filtro.utilizador_id = utilizadorId;
+      }
+    }
+
+    // Filtro opcional por estado.
+    const ESTADOS_VALIDOS = [
+      'por_atribuir',
+      'atribuida',
+      'em_curso',
+      'concluida',
+      'cancelada',
+    ];
+    if (estado && ESTADOS_VALIDOS.includes(estado)) {
+      filtro.estado = estado;
+    }
+
+    const tarefas = await Tarefa.find(filtro)
+      .populate({ path: 'propriedade_id', select: 'nome morada coordenadas' })
+      .populate({ path: 'utilizador_id', select: 'nome' })
+      .sort({ data: 1 })
+      .lean();
+
+    return res.status(200).json({ tarefas });
+  } catch (err) {
+    console.error('❌ getDadosCalendario:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
 /* ------------------------------------------------------------------ */
 /* Equipa (Utilizadores)                                               */
 /* ------------------------------------------------------------------ */
