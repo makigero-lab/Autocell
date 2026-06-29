@@ -91,6 +91,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 | `/admin/equipa`       | CRUD completo de equipa + folgas + telefone + falta súbita + baixa + paginação | Desktop-first |
 | `/admin/calendario`   | Calendário geral de operações (grelha mensal estilo Google) | Desktop-first |
 | `/admin/relatorios`   | Relatórios/Analytics com gráficos (recharts: linha, barras, pie) | Desktop-first |
+| `/admin/webhooks`     | Logs de webhooks do Smoobu (status, payload, erro, reproccessar) | Desktop-first |
 | `/manager`      | Painel do Responsável de Limpezas — **protegido** (role manager) | Desktop-first |
 | `/manager/tarefas`    | Placeholder (Tarefas)                        | Desktop-first |
 | `/manager/equipa`     | Placeholder (Equipa)                         | Desktop-first |
@@ -99,7 +100,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 
 ### 3.1 Área Admin (`/admin`)
 
-- **Barra lateral** (`admin-sidebar.tsx`) com 6 itens: **Dashboard**, **Propriedades**, **Tarefas**, **Equipa**, **Calendário de Folgas**, **Relatórios**.
+- **Barra lateral** (`admin-sidebar.tsx`) com 7 itens: **Dashboard**, **Propriedades**, **Tarefas**, **Equipa**, **Calendário de Folgas**, **Relatórios**, **Webhooks**.
   - Desktop (`lg+`): sidebar fixa à esquerda, sempre visível.
   - Mobile: colapsada; abre como **overlay** ao tocar no botão de menu (hambúrguer).
   - Item ativo destacado com cor primária (dourado). Toggle de tema (claro/escuro) no fundo.
@@ -109,6 +110,7 @@ A aplicação tem **três áreas privadas** (cada uma com layout próprio), uma 
 - **Equipa** (`/admin/equipa`): CRUD completo + folgas fixas semanais + telefone + botão Falta Súbita + botão Baixa/Férias + paginação client-side.
 - **Calendário de Folgas** (`/admin/calendario`): grelha mensal estilo Google Calendar com tarefas + ausências + modal de detalhe.
 - **Relatórios** (`/admin/relatorios`): analytics com gráficos recharts — evolução diária (linha), produtividade por funcionário (barras), distribuição por estado (pie) + tabela de carga por propriedade. Filtro de período (7/30/90 dias ou datas custom).
+- **Webhooks** (`/admin/webhooks`): histórico de webhooks recebidos do Smoobu — cartões de filtro por estado (todos/recebidos/processados/com erro) com contagem + lista expandível com action, reserva, propriedade, check-in, data + payload bruto (JSON formatado) + mensagem de erro (se houver) + botão "Reprocessar" para webhooks com erro. Essencial para confirmar que o Smoobu está a enviar e fazer debug quando algo falha.
 
 ### 3.2 Área Staff (`/staff`)
 

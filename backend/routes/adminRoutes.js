@@ -40,6 +40,8 @@ const {
   registarBaixaProlongada,
   exportarTarefasCSV,
   getAuditoria,
+  getWebhooks,
+  reprocessarWebhook,
   setupClienteZero,
 } = require('../controllers/adminController');
 const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
@@ -84,5 +86,9 @@ router.post('/equipa/:id/baixa', auth, registarBaixaProlongada);
 
 // Auditoria.
 router.get('/auditoria', auth, getAuditoria);
+
+// Webhooks — logs do Smoobu (lista + reproccessamento manual).
+router.get('/webhooks', auth, getWebhooks);
+router.post('/webhooks/:id/reprocessar', auth, reprocessarWebhook);
 
 module.exports = router;

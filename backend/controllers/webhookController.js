@@ -327,12 +327,36 @@ async function determinarUtilizadorAtribuido(empresaId, range, coordenadasNovaPr
  * Processa o payload do Smoobu e cria a Tarefa correspondente.
  *
  * @param {object} payload
- * @returns {Promise<object>} a tarefa criada
+ * @returns {Promise<object|null>} a tarefa criada (ou a existente, se duplicado),
+ *   ou null se a action não for newReservation.
  */
 async function processarReservaSmoobu(payload) {
   // Passo 1 — Receber o payload (identificar propriedade + data_check_in).
   const { smoobuPropId, dataCheckInRaw, reservaId, content } =
     extrairDadosReserva(payload);
+
+  // v1.18.0 — Ação do webhook: o Smoobu envia webhooks para várias ações
+  // (newReservation, updateReservation, cancellation, etc.). Só criamos
+  // tarefa para 'newReservation' (e variantes). Outras ações são ignoradas
+  // graciosamente (não é erro — apenas não há nada a fazer).
+  const action =
+    (payload && payload.action) ||
+    (payload && payload.type) ||
+    (content && content.action) ||
+    'newReservation'; // fallback: se não vier action, assume newReservation
+
+  const ACOES_CRIAR_TAREFA = [
+    'newReservation',
+    'new_reservation',
+    'reservation_created',
+    'created',
+  ];
+  if (!ACOES_CRIAR_TAREFA.includes(action)) {
+    console.log(
+      `ℹ️  Webhook com action "${action}" — não cria tarefa (apenas newReservation é processado).`
+    );
+    return null; // não é erro → o WebhookLog fica 'processado'
+  }
 
   if (!smoobuPropId || !dataCheckInRaw) {
     throw new Error(
@@ -343,6 +367,20 @@ async function processarReservaSmoobu(payload) {
   const range = getDayRange(dataCheckInRaw);
   if (!range) {
     throw new Error(`data_check_in inválida: ${dataCheckInRaw}`);
+  }
+
+  // v1.18.0 — Idempotência: o Smoobu pode reenviar o mesmo webhook (retries
+  // em caso de timeout/network glitch). Se já existir uma tarefa com o
+  // mesmo smoobu_reserva_id, NÃO criamos duplicado — apenas devolvemos a
+  // existente. Isto evita tarefas órfãs/duplicadas que poluiriam o calendário.
+  if (reservaId) {
+    const existente = await Tarefa.findOne({ smoobu_reserva_id: reservaId });
+    if (existente) {
+      console.log(
+        `♻️  Webhook duplicado (reserva ${reservaId}) — tarefa ${existente._id} já existe. Sem ação.`
+      );
+      return existente;
+    }
   }
 
   // Passo 2 — Encontrar a empresa à qual a propriedade pertence.
@@ -456,15 +494,18 @@ exports.webhookSmoobu = async (req, res) => {
   //    Atualiza o WebhookLog conforme o resultado.
   setImmediate(async () => {
     try {
-      await processarReservaSmoobu(req.body);
+      const resultado = await processarReservaSmoobu(req.body);
 
       // Sucesso → atualiza log para 'processado'.
+      // (inclui o caso de webhook duplicado ou action ignorada — não é erro)
       if (webhookLog) {
         await WebhookLog.findByIdAndUpdate(webhookLog._id, {
           status: 'processado',
           erro_msg: null,
         });
       }
+      // resultado pode ser null (action ignorada) ou a tarefa (criada/existente)
+      return resultado;
     } catch (err) {
       console.error('❌ Erro no processamento do webhook Smoobu:', err.message);
 
@@ -478,3 +519,7 @@ exports.webhookSmoobu = async (req, res) => {
     }
   });
 };
+
+// Exporta a função de processamento para permitir reproccessamento manual
+// a partir do painel de admin (POST /api/admin/webhooks/:id/reprocessar).
+exports._processarReservaSmoobu = processarReservaSmoobu;

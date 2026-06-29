@@ -16,6 +16,7 @@ const Utilizador = require('../models/Utilizador');
 const Tarefa = require('../models/Tarefa');
 const Ausencia = require('../models/Ausencia');
 const Auditoria = require('../models/Auditoria');
+const WebhookLog = require('../models/WebhookLog');
 const { obterCoordenadas } = require('../utils/geocoding');
 const { registarAuditoria } = require('../utils/auditoria');
 
@@ -1443,6 +1444,103 @@ exports.setupClienteZero = async (req, res) => {
       });
     }
 
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Webhooks — Logs do Smoobu                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/webhooks
+ * Lista os WebhookLogs recebidos do Smoobu (ordenados por data desc).
+ *
+ * Útil para o Admin confirmar que os webhooks estão a chegar e ver o estado
+ * de processamento (recebido / processado / erro) + o payload bruto + a
+ * mensagem de erro (se houver).
+ *
+ * Query params:
+ *   - status (opcional): filtra por estado ('recebido' | 'processado' | 'erro')
+ *   - limit (opcional, default 50, máx 200)
+ *
+ * Resposta 200: { webhooks: [...], total }
+ *
+ * NOTA: o WebhookLog é global (não tem empresa_id) porque o webhook é um
+ * endpoint público do Smoobu. Em ambientes multi-tenant futuros, será
+ * adicionada filtragem por empresa.
+ */
+exports.getWebhooks = async (req, res) => {
+  try {
+    // Não usamos obterEmpresaId aqui porque o WebhookLog é global — não tem
+    // empresa_id. A auth continua a ser exigida (rota protegida) para que só
+    // admins autenticados vejam os logs.
+    const { status } = req.query;
+    const limit = Math.min(Number(req.query?.limit) || 50, 200);
+
+    const filtro = {};
+    if (status && ['recebido', 'processado', 'erro'].includes(status)) {
+      filtro.status = status;
+    }
+
+    const [webhooks, total] = await Promise.all([
+      WebhookLog.find(filtro)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(),
+      WebhookLog.countDocuments(filtro),
+    ]);
+
+    return res.status(200).json({ webhooks, total });
+  } catch (err) {
+    console.error('❌ getWebhooks:', err.message);
+    return res.status(500).json({ erro: 'Erro interno do servidor.' });
+  }
+};
+
+/**
+ * POST /api/admin/webhooks/:id/reprocessar
+ * Reproccessa um WebhookLog que tenha ficado com status 'erro' (ou até
+ * 'processado', se o Admin quiser forçar). Volta a chamar a lógica de
+ * processamento com o payload original guardado no log.
+ *
+ * Útil quando um webhook falhou por um motivo transitório (ex: BD em baixo,
+ * geocoding indisponível, propriedade ainda não criada) e o Admin já
+ * corrigiu a causa raiz.
+ *
+ * Resposta 200: { status: 'processado' | 'erro', erro_msg: string | null }
+ */
+exports.reprocessarWebhook = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: 'ID de webhook inválido.' });
+    }
+
+    const log = await WebhookLog.findById(id);
+    if (!log) {
+      return res.status(404).json({ erro: 'Webhook não encontrado.' });
+    }
+
+    // Reutiliza a função de processamento do webhookController.
+    // A idempotência (verificação de smoobu_reserva_id duplicado) garante
+    // que reproccessar um webhook já processado não cria tarefa duplicada.
+    const { _processarReservaSmoobu } = require('../controllers/webhookController');
+
+    try {
+      await _processarReservaSmoobu(log.payload);
+      log.status = 'processado';
+      log.erro_msg = null;
+      await log.save();
+      return res.status(200).json({ status: 'processado', erro_msg: null });
+    } catch (e) {
+      log.status = 'erro';
+      log.erro_msg = e.message;
+      await log.save();
+      return res.status(200).json({ status: 'erro', erro_msg: e.message });
+    }
+  } catch (err) {
+    console.error('❌ reprocessarWebhook:', err.message);
     return res.status(500).json({ erro: 'Erro interno do servidor.' });
   }
 };

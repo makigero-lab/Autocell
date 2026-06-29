@@ -510,6 +510,40 @@ Métricas de produtividade da empresa num intervalo de datas.
 
 ---
 
+### 6.5. Webhooks — Logs do Smoobu (`/api/admin/webhooks`)
+
+*Protegido por JWT (middleware `auth`).*
+
+#### `GET /api/admin/webhooks`
+
+Lista os `WebhookLog` recebidos do Smoobu (ordenados por data desc). Útil para o Admin confirmar que os webhooks estão a chegar e ver o estado de processamento.
+
+**Query params (opcionais):**
+- `status` — filtra por estado: `recebido` | `processado` | `erro`
+- `limit` — máximo de resultados (default 50, máx 200)
+
+**Resposta 200:** `{ webhooks: [...], total }`
+
+> NOTA: o `WebhookLog` é global (não tem `empresa_id`) porque o webhook é um endpoint público do Smoobu. A auth continua exigida para que só admins vejam os logs.
+
+#### `POST /api/admin/webhooks/:id/reprocessar`
+
+Reprocessa um `WebhookLog` (útil quando falhou por motivo transitório e o Admin já corrigiu a causa — ex: criou a propriedade em falta). Reutiliza a função interna `processarReservaSmoobu` com o payload original guardado no log. A idempotência (verificação de `smoobu_reserva_id`) garante que reproccessar um webhook já processado não cria tarefa duplicada.
+
+**Resposta 200:** `{ status: 'processado' | 'erro', erro_msg: string | null }`
+
+---
+
+### 6.6. Webhook Smoobu — robustez de produção (v1.18.0)
+
+O endpoint `POST /webhooks/smoobu` recebe 3 melhorias críticas para funcionar em produção com o Smoobu real:
+
+1. **Idempotência**: antes de criar a tarefa, verifica se já existe uma `Tarefa` com o mesmo `smoobu_reserva_id`. Se sim, não cria duplicado (o Smoobu faz retries em caso de timeout/network glitch). Devolve a tarefa existente.
+2. **Robustez de ações**: o Smoobu envia webhooks para várias ações (`newReservation`, `updateReservation`, `cancellation`, etc.). Só `newReservation` (e variantes) cria tarefa. Outras ações são ignoradas graciosamente (log + 200, **sem erro**).
+3. **Visibilidade**: todos os webhooks ficam registados em `WebhookLog` com `status` (`recebido` → `processado`/`erro`) + `erro_msg` + `payload` bruto. O Admin consulta-os em `GET /api/admin/webhooks` e pode reprocessar os que falharam.
+
+---
+
 ## 7. Deploy no Render
 
 | Definição        | Valor                        |
@@ -557,3 +591,4 @@ Métricas de produtividade da empresa num intervalo de datas.
 | v1.16.0    | 1.16.0 | **Emergências + SLA + Atrasos:** `POST /api/admin/equipa/:id/falta-subita` (reatribuição de emergência das tarefas do dia). `POST /api/admin/equipa/:id/baixa` (baixa prolongada/férias — redistribui tarefas futuras). SLA de capacidade máxima no load balancer (420 min = 7h). `POST /api/admin/tarefas/:id/atraso` (reportar atraso). Remoção do campo legacy `data` do modelo `Ausencia` (queries agora só usam `data_inicio`/`data_fim`). Pausar/desativar propriedades (`ativo: false`) — webhook respeita. Gestão manual de tarefas (`POST /api/admin/tarefas`, `PATCH /:id/atribuir`, `PATCH /:id/estado`). |
 | v1.16.1    | 1.16.1 | **Dashboard real + Auditoria + Health + Rate limit global + Modo escuro + CSV:** dashboard do admin com dados reais (`GET /api/admin/dashboard` com contagens em paralelo + aggregate carga por staff). Modelo `Auditoria` + `utils/auditoria.js` (fire-and-forget) + `GET /api/admin/auditoria`. `GET /api/health` (estado BD + uptime). Rate limiting global (100 req/15min em `/api/`). Modo escuro funcional (toggle no sidebar, CSS vars). Exportação CSV (`GET /api/admin/tarefas/export`). |
 | v1.17.0    | 1.17.0 | **Relatórios/Analytics + Paginação + Testes de integração + Fix bug webhook:** `GET /api/admin/relatorios/produtividade` (aggregations: resumo, por staff, por dia, por estado, por propriedade) com filtro de período. Página `/admin/relatorios` com gráficos recharts (linha, barras, pie). Paginação client-side nas listagens de equipa e tarefas (componente reutilizável `PaginationBar`). Suite de testes expandida de 4 para 29 testes com `mongodb-memory-server` (auth 401, login, /me, CRUD propriedades, webhook com atribuição real, dashboard, relatórios). **Fix bug crítico:** `tempoLimpeza` era usado antes da declaração (TDZ `const`) em `processarReservaSmoobu` → `ReferenceError` silenciado pelo try/catch → tarefas ficavam sempre sem atribuição. Corrigido reordenando a computação de `tempoLimpeza` antes da chamada ao load balancer. |
+| v1.18.0    | 1.18.0 | **Webhook Smoobu para produção:** (1) **Idempotência** — antes de criar tarefa, verifica se já existe `Tarefa` com o mesmo `smoobu_reserva_id`; se sim, não duplica (o Smoobu faz retries). (2) **Robustez de ações** — só `newReservation` (e variantes) cria tarefa; outras ações (`updateReservation`, `cancellation`, etc.) são ignoradas graciosamente (log + 200, sem erro). (3) **Visibilidade** — novos endpoints `GET /api/admin/webhooks` (lista logs com filtro `?status=` + `?limit=`) e `POST /api/admin/webhooks/:id/reprocessar` (reprocessa webhook que falhou, reutiliza o payload guardado). Função interna `processarReservaSmoobu` exportada como `_processarReservaSmoobu` para o reproccessamento. Página `/admin/webhooks` no frontend (cartões de filtro por estado + lista expandível com payload bruto + erro + botão reprocessar). 6 novos testes (35 no total): idempotência, ação desconhecida, listagem com/sem token, filtro status, reproccessamento. |

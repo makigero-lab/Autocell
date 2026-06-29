@@ -348,6 +348,99 @@ describe('POST /webhooks/smoobu (load balancer)', () => {
     // Restaura o estado ativo para testes seguintes.
     await Propriedade.updateOne({ smoobu_id: '200' }, { $set: { ativo: true } });
   });
+
+  it('webhook duplicado (mesmo reservaId) → não cria tarefa duplicada (idempotência)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const payload = {
+      action: 'newReservation',
+      data: { id: 999, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    };
+
+    // Primeiro envio → cria tarefa.
+    await request(app).post('/webhooks/smoobu').send(payload);
+    await esperar(400);
+    const tarefas1 = await Tarefa.find({ smoobu_reserva_id: '999' });
+    expect(tarefas1.length).toBe(1);
+
+    // Segundo envio (retry do Smoobu) → NÃO cria duplicado.
+    await request(app).post('/webhooks/smoobu').send(payload);
+    await esperar(400);
+    const tarefas2 = await Tarefa.find({ smoobu_reserva_id: '999' });
+    expect(tarefas2.length).toBe(1);
+  });
+
+  it('action não-newReservation → 200 mas não cria tarefa (log processado)', async () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const res = await request(app).post('/webhooks/smoobu').send({
+      action: 'updateReservation',
+      data: { id: 888, arrival: amanha, apartment: { id: 200, name: 'X' } },
+    });
+    expect(res.status).toBe(200);
+    await esperar(400);
+
+    // Não cria tarefa.
+    const tarefa = await Tarefa.findOne({ smoobu_reserva_id: '888' });
+    expect(tarefa).toBeNull();
+
+    // O log fica 'processado' (não é erro — apenas não há nada a fazer).
+    const log = await WebhookLog.findOne({ 'payload.data.id': 888 });
+    expect(log).not.toBeNull();
+    expect(log.status).toBe('processado');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 6b. Admin — Webhooks (logs)                                        */
+/* ------------------------------------------------------------------ */
+
+describe('GET /api/admin/webhooks', () => {
+  it('sem token → 401', async () => {
+    const res = await request(app).get('/api/admin/webhooks');
+    expect(res.status).toBe(401);
+  });
+
+  it('com token → 200 + lista de logs + total', async () => {
+    const res = await authGet('/api/admin/webhooks');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.webhooks)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    // Os webhooks enviados nos testes anteriores devem aparecer.
+    expect(res.body.total).toBeGreaterThan(0);
+  });
+
+  it('filtro por status=erro → só devolve logs com erro', async () => {
+    // Força um webhook que vai falhar (propriedade inexistente).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 4040, arrival: '2026-08-01', apartment: { id: 999999, name: 'X' } },
+    });
+    await esperar(400);
+
+    const res = await authGet('/api/admin/webhooks?status=erro');
+    expect(res.status).toBe(200);
+    expect(res.body.webhooks.length).toBeGreaterThan(0);
+    expect(res.body.webhooks.every((w) => w.status === 'erro')).toBe(true);
+  });
+});
+
+describe('POST /api/admin/webhooks/:id/reprocessar', () => {
+  it('webhook com erro (propriedade inexistente) → reprocessar mantém erro', async () => {
+    // Cria um webhook que falhou (propriedade não existe).
+    await request(app).post('/webhooks/smoobu').send({
+      action: 'newReservation',
+      data: { id: 5050, arrival: '2026-08-01', apartment: { id: 888888, name: 'X' } },
+    });
+    await esperar(400);
+
+    const logErro = await WebhookLog.findOne({ 'payload.data.id': 5050 });
+    expect(logErro).not.toBeNull();
+    expect(logErro.status).toBe('erro');
+
+    // Reproccessa → continua a falhar (propriedade ainda não existe).
+    const res = await authPost(`/api/admin/webhooks/${logErro._id}/reprocessar`, {});
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('erro');
+  });
 });
 
 /* ------------------------------------------------------------------ */
