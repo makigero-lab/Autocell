@@ -363,10 +363,11 @@ exports.alternarEstadoPropriedade = async (req, res) => {
       return res.status(400).json({ erro: 'ID de propriedade inválido.' });
     }
 
+    // Primeiro busca para validar pertença à empresa e saber o estado atual.
     const propriedade = await Propriedade.findOne({
       _id: id,
       empresa_id: empresaId,
-    });
+    }).lean();
     if (!propriedade) {
       return res.status(404).json({
         erro: 'Propriedade não encontrada (ou não pertence a esta empresa).',
@@ -377,11 +378,17 @@ exports.alternarEstadoPropriedade = async (req, res) => {
     const novoEstado =
       typeof req.body?.ativo === 'boolean' ? req.body.ativo : !propriedade.ativo;
 
-    propriedade.ativo = novoEstado;
-    await propriedade.save();
+    // Usa findOneAndUpdate com $set em vez de save() para NÃO re-validar o
+    // documento inteiro. Isto evita 500s em propriedades legacy que possam
+    // faltar campos que entretanto se tornaram obrigatórios (ex: morada).
+    const atualizada = await Propriedade.findOneAndUpdate(
+      { _id: id, empresa_id: empresaId },
+      { $set: { ativo: novoEstado } },
+      { new: true }
+    ).lean();
 
     return res.status(200).json({
-      propriedade,
+      propriedade: atualizada,
       ativo: novoEstado,
     });
   } catch (err) {
