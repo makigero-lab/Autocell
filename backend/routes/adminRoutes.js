@@ -46,7 +46,7 @@ const {
   setupClienteZero,
 } = require('../controllers/adminController');
 const { reportarAtrasoTarefa, criarTarefa, atribuirTarefa, atualizarEstadoTarefa } = require('../controllers/tarefaController');
-const { sincronizarReservas } = require('../controllers/smoobuController');
+const { sincronizarReservas, getPropriedadesSmoobu } = require('../controllers/smoobuController');
 
 // Bootstrap do ambiente de testes — Cliente Zero. PÚBLICO (sem auth).
 router.get('/setup', setupClienteZero);
@@ -96,5 +96,8 @@ router.post('/webhooks/:id/reprocessar', auth, reprocessarWebhook);
 
 // Smoobu — sincronização em massa de reservas (REST API pull).
 router.post('/smoobu/sincronizar', auth, sincronizarReservas);
+
+// Smoobu — listar propriedades (apartamentos) para mapeamento no fluxo de criação.
+router.get('/smoobu/propriedades', auth, getPropriedadesSmoobu);
 
 module.exports = router;

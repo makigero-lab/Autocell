@@ -206,3 +206,96 @@ exports.sincronizarReservas = async (req, res) => {
     detalheErros,
   });
 };
+
+/* ------------------------------------------------------------------ */
+/* Listar propriedades do Smoobu                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GET /api/admin/smoobu/propriedades
+ *
+ * Vai buscar a lista de apartamentos ao Smoobu via REST API (endpoint
+ * oficial `/api/apartments`) e devolve-a ao frontend de forma limpa.
+ *
+ * Isto facilita o mapeamento no fluxo de criação de propriedades: em vez
+ * de o Admin ter de digitar o `smoobu_id` manualmente, o frontend pode
+ * mostrar um dropdown com os apartamentos que vêm do Smoobu.
+ *
+ * Requer: variável de ambiente SMOOBU_API_KEY.
+ *
+ * Resposta 200: { propriedadesSmoobu: [{ id, name, ... }, ...] }
+ *
+ * Erros:
+ *   400 — SMOOBU_API_KEY não configurada
+ *   502 — erro no fetch ao Smoobu (timeout, 4xx/5xx, JSON inválido)
+ *   500 — erro interno
+ */
+exports.getPropriedadesSmoobu = async (req, res) => {
+  const apiKey = process.env.SMOOBU_API_KEY;
+  if (!apiKey || !apiKey.trim()) {
+    return res.status(400).json({
+      erro:
+        'SMOOBU_API_KEY não configurada. Define-a nas variáveis de ambiente do backend.',
+    });
+  }
+
+  let respostaSmoobu;
+  try {
+    respostaSmoobu = await fetch('https://login.smoobu.com/api/apartments', {
+      method: 'GET',
+      headers: {
+        'Api-Key': apiKey.trim(),
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    console.error('❌ getPropriedadesSmoobu: fetch falhou:', err.message);
+    return res.status(502).json({
+      erro: 'Não foi possível ligar ao Smoobu.',
+      detalhe: err.message,
+    });
+  }
+
+  if (!respostaSmoobu.ok) {
+    const texto = await respostaSmoobu.text().catch(() => '');
+    console.error(
+      `❌ getPropriedadesSmoobu: Smoobu devolveu ${respostaSmoobu.status} ${respostaSmoobu.statusText}`
+    );
+    return res.status(502).json({
+      erro: `Smoobu devolveu erro ${respostaSmoobu.status}.`,
+      detalhe: texto.slice(0, 500) || respostaSmoobu.statusText,
+    });
+  }
+
+  let body;
+  try {
+    body = await respostaSmoobu.json();
+  } catch (err) {
+    console.error('❌ getPropriedadesSmoobu: JSON inválido:', err.message);
+    return res.status(502).json({
+      erro: 'Resposta do Smoobu não é JSON válido.',
+      detalhe: err.message,
+    });
+  }
+
+  // O Smoobu devolve { apartments: [...] }. Cobrimos variantes por precaução.
+  const apartments =
+    body?.apartments ?? body?.data?.apartments ?? (Array.isArray(body) ? body : []);
+
+  if (!Array.isArray(apartments)) {
+    return res.status(502).json({
+      erro: 'Resposta do Smoobu não contém array "apartments".',
+      detalhe: JSON.stringify(body).slice(0, 500),
+    });
+  }
+
+  // Devolve apenas os campos úteis ao frontend (id + name), evitando
+  // vazar informação sensível ou campos volumosos desnecessários.
+  const propriedadesSmoobu = apartments.map((a) => ({
+    id: a.id,
+    name: a.name,
+  }));
+
+  return res.status(200).json({ propriedadesSmoobu });
+};

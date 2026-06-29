@@ -873,3 +873,88 @@ describe('POST /api/admin/smoobu/sincronizar', () => {
     expect(String(res.body.detalheErros[0].reservaId)).toBe('4001');
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 10. Smoobu — listar propriedades (apartamentos)                     */
+/* ------------------------------------------------------------------ */
+
+describe('GET /api/admin/smoobu/propriedades', () => {
+  let apiKeyOriginal;
+
+  beforeEach(() => {
+    apiKeyOriginal = process.env.SMOOBU_API_KEY;
+  });
+
+  afterEach(() => {
+    if (apiKeyOriginal === undefined) {
+      delete process.env.SMOOBU_API_KEY;
+    } else {
+      process.env.SMOOBU_API_KEY = apiKeyOriginal;
+    }
+    if (global.fetch && global.fetch.__isMock) {
+      global.fetch.mockRestore();
+      delete global.fetch.__isMock;
+    }
+  });
+
+  it('sem token → 401', async () => {
+    const res = await request(app).get('/api/admin/smoobu/propriedades');
+    expect(res.status).toBe(401);
+  });
+
+  it('sem SMOOBU_API_KEY configurada → 400', async () => {
+    delete process.env.SMOOBU_API_KEY;
+    const res = await authGet('/api/admin/smoobu/propriedades');
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toMatch(/SMOOBU_API_KEY/);
+  });
+
+  it('com API key + fetch mockado → 200 + lista de apartamentos limpa', async () => {
+    process.env.SMOOBU_API_KEY = 'test-key-123';
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        apartments: [
+          { id: 101, name: 'Casa da Praia', someField: 'ignored' },
+          { id: 102, name: 'Apartamento Centro' },
+        ],
+      }),
+      text: async () => '',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authGet('/api/admin/smoobu/propriedades');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.propriedadesSmoobu)).toBe(true);
+    expect(res.body.propriedadesSmoobu.length).toBe(2);
+    // Devolve só id + name (não vaza other fields).
+    expect(res.body.propriedadesSmoobu[0]).toEqual({ id: 101, name: 'Casa da Praia' });
+    expect(res.body.propriedadesSmoobu[0]).not.toHaveProperty('someField');
+
+    // Verifica que o fetch foi chamado com o URL e header corretos.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://login.smoobu.com/api/apartments');
+    expect(opts.headers['Api-Key']).toBe('test-key-123');
+  });
+
+  it('fetch devolve erro 401 (API key inválida) → 502', async () => {
+    process.env.SMOOBU_API_KEY = 'invalid-key';
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      json: async () => ({}),
+      text: async () => 'Unauthorized',
+    });
+    mockFetch.__isMock = true;
+    global.fetch = mockFetch;
+
+    const res = await authGet('/api/admin/smoobu/propriedades');
+    expect(res.status).toBe(502);
+    expect(res.body.erro).toMatch(/401/);
+  });
+});
