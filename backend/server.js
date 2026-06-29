@@ -2,6 +2,16 @@
  * Autocell - API de gestão para Alojamento Local
  * Ponto de entrada da aplicação backend (Express + MongoDB).
  *
+ * Variáveis de ambiente (ver .env.example):
+ *   - MONGODB_URI        — URI de ligação ao MongoDB (obrigatória)
+ *   - PORT               — porta do servidor (default 5000; Render injeta)
+ *   - JWT_SECRET         — segredo de assinatura dos JWT (obrigatória)
+ *   - JWT_EXPIRACAO      — expiração do JWT (default "7d")
+ *   - FRONTEND_URL       — origem permitida para CORS (default localhost:3000)
+ *   - SMOOBU_API_KEY     — API Key do Smoobu para sincronização em massa
+ *                          (POST /api/admin/smoobu/sincronizar). Opcional:
+ *                          sem ela, a sincronização devolve 400.
+ *
  * NOTA: a instância `app` é exportada (module.exports) para poder ser
  * usada nos testes com supertest SEM iniciar o servidor HTTP nem ligar
  * ao MongoDB. O `app.listen` e o `mongoose.connect` só correm quando
