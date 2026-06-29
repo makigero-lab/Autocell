@@ -41,7 +41,7 @@ const propriedadeSchema = new mongoose.Schema(
     // do Smoobu não traz esta informação.
     tempo_limpeza_minutos: {
       type: Number,
-      default: 60,
+      default: 45,
       min: 0,
     },
     ativo: {

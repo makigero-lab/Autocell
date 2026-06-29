@@ -469,7 +469,7 @@ async function criarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw, co
     content.tempo_limpeza_minutos ??
     content.cleaning_minutes ??
     propriedade.tempo_limpeza_minutos ??
-    60;
+    45;
 
   // Load balancer (best-effort: se falhar, cria sem atribuição).
   let utilizadorAtribuido = null;
@@ -494,7 +494,7 @@ async function criarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw, co
     smoobu_reserva_id: reservaId || undefined,
     utilizador_id: utilizadorAtribuido,
     data: range.start,
-    tempo_limpeza_minutos: Number(tempoLimpeza) || 60,
+    tempo_limpeza_minutos: Number(tempoLimpeza) || 45,
     tipo: 'limpeza',
     estado: utilizadorAtribuido ? 'atribuida' : 'por_atribuir',
   });
@@ -620,8 +620,8 @@ async function atualizarTarefaPorReserva(reservaId, smoobuPropId, dataCheckInRaw
         content.tempo_limpeza_minutos ??
         content.cleaning_minutes ??
         propriedade.tempo_limpeza_minutos ??
-        60;
-      const novoTempo = Number(tempoLimpeza) || 60;
+        45;
+      const novoTempo = Number(tempoLimpeza) || 45;
       if (tarefa.tempo_limpeza_minutos !== novoTempo) {
         tarefa.tempo_limpeza_minutos = novoTempo;
         mudou = true;

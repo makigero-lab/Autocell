@@ -194,7 +194,7 @@ exports.criarTarefa = async (req, res) => {
       propriedade_id,
       utilizador_id: utilizadorValidado,
       data: dataNormalizada,
-      tempo_limpeza_minutos: Number(tempo_limpeza_minutos) || propriedade.tempo_limpeza_minutos || 60,
+      tempo_limpeza_minutos: Number(tempo_limpeza_minutos) || propriedade.tempo_limpeza_minutos || 45,
       tipo: tipo || 'limpeza',
       estado: utilizadorValidado ? 'atribuida' : 'por_atribuir',
     });

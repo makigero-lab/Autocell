@@ -41,7 +41,7 @@ const tarefaSchema = new mongoose.Schema(
     tempo_limpeza_minutos: {
       type: Number,
       required: true,
-      default: 60,
+      default: 45,
       min: 0,
     },
     tipo: {

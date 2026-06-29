@@ -105,7 +105,7 @@ export default function AdminTarefasPage() {
     propriedade_id: "",
     utilizador_id: "",
     data: "",
-    tempo_limpeza_minutos: "60",
+    tempo_limpeza_minutos: "45",
     tipo: "limpeza",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -167,10 +167,10 @@ export default function AdminTarefasPage() {
         propriedade_id: form.propriedade_id,
         utilizador_id: form.utilizador_id || null,
         data: form.data,
-        tempo_limpeza_minutos: Number(form.tempo_limpeza_minutos) || 60,
+        tempo_limpeza_minutos: Number(form.tempo_limpeza_minutos) || 45,
         tipo: form.tipo,
       });
-      setForm({ propriedade_id: "", utilizador_id: "", data: "", tempo_limpeza_minutos: "60", tipo: "limpeza" });
+      setForm({ propriedade_id: "", utilizador_id: "", data: "", tempo_limpeza_minutos: "45", tipo: "limpeza" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {

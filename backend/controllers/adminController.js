@@ -183,7 +183,7 @@ exports.getPropriedades = async (req, res) => {
  * POST /api/admin/propriedades
  * Cria uma propriedade para essa empresa.
  * Valida: smoobu_id (obrigatório + único), nome (obrigatório),
- * tempo_limpeza_minutos (opcional, default 60).
+ * tempo_limpeza_minutos (opcional, default 45).
  *
  * Body esperado:
  *   { smoobu_id, nome, tempo_limpeza_minutos? }
@@ -212,7 +212,7 @@ exports.criarPropriedade = async (req, res) => {
     }
 
     // Validação de tempo_limpeza_minutos (se vier, tem de ser número >= 0).
-    let tempo = 60;
+    let tempo = 45;
     if (tempo_limpeza_minutos !== undefined && tempo_limpeza_minutos !== null) {
       const n = Number(tempo_limpeza_minutos);
       if (Number.isNaN(n) || n < 0) {
@@ -1297,7 +1297,7 @@ exports.registarBaixaProlongada = async (req, res) => {
       const range = { start: tInicio, end: tFim };
 
       const coordNovaProp = tarefa.propriedade_id?.coordenadas ?? null;
-      const tempoNovaTarefa = tarefa.tempo_limpeza_minutos || 60;
+      const tempoNovaTarefa = tarefa.tempo_limpeza_minutos || 45;
 
       let novoUtilizador = null;
       try {
@@ -1557,7 +1557,7 @@ exports.setupClienteZero = async (req, res) => {
         smoobu_id: SMOOBU_ID_TESTE,
         nome: NOME_PROPRIEDADE,
         empresa_id: empresa._id,
-        tempo_limpeza_minutos: 60,
+        tempo_limpeza_minutos: 45,
       });
       propriedadeCriada = true;
     }

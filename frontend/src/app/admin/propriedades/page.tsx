@@ -48,7 +48,7 @@ export default function PropriedadesPage() {
     nome: "",
     smoobu_id: "",
     morada: "",
-    tempo_limpeza_minutos: "60",
+    tempo_limpeza_minutos: "45",
   });
   const [submitting, setSubmitting] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -135,7 +135,7 @@ export default function PropriedadesPage() {
         tempo_limpeza_minutos: tempo,
       });
       // Limpa o formulário e atualiza a tabela automaticamente.
-      setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "60" });
+      setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "45" });
       setMostrarForm(false);
       await carregar();
     } catch (e) {
@@ -168,7 +168,7 @@ export default function PropriedadesPage() {
     nome: "",
     smoobu_id: "",
     morada: "",
-    tempo_limpeza_minutos: "60",
+    tempo_limpeza_minutos: "45",
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErro, setEditErro] = useState<string | null>(null);
@@ -180,7 +180,7 @@ export default function PropriedadesPage() {
       nome: p.nome,
       smoobu_id: p.smoobu_id,
       morada: p.morada ?? "",
-      tempo_limpeza_minutos: String(p.tempo_limpeza_minutos ?? 60),
+      tempo_limpeza_minutos: String(p.tempo_limpeza_minutos ?? 45),
     });
     setEditErro(null);
   }
@@ -370,7 +370,7 @@ export default function PropriedadesPage() {
                         tempo_limpeza_minutos: e.target.value,
                       }))
                     }
-                    placeholder="60"
+                    placeholder="45"
                   />
                 </div>
               </div>
@@ -399,7 +399,7 @@ export default function PropriedadesPage() {
                   onClick={() => {
                     setMostrarForm(false);
                     setFormErro(null);
-                    setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "60" });
+                    setForm({ nome: "", smoobu_id: "", morada: "", tempo_limpeza_minutos: "45" });
                   }}
                   disabled={submitting}
                 >
